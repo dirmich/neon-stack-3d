@@ -32,6 +32,8 @@
   let camera: THREE.PerspectiveCamera | undefined;
   let renderer: THREE.WebGLRenderer | undefined;
   let controls: OrbitControls | undefined;
+  let piecesGroup: THREE.Group | undefined;
+  let ghostGroup: THREE.Group | undefined;
   let frame = 0;
   let resizeObserver: ResizeObserver | undefined;
   let needsRender = true;
@@ -90,6 +92,8 @@
     const mesh = new THREE.Mesh(blockGeometry, ghost ? ghostMaterialFor(type) : materialFor(type));
     mesh.castShadow = !ghost;
     mesh.receiveShadow = !ghost;
+    // 새 메시는 반드시 scene에 attach해야 렌더링된다.
+    (ghost ? ghostGroup : piecesGroup)?.add(mesh);
     pool.set(key, mesh);
     return mesh;
   }
@@ -229,6 +233,10 @@
     const blueLight = new THREE.PointLight('#4dbdff', 14, 25, 2);
     blueLight.position.set(-8, 18, 8);
     scene.add(blueLight);
+
+    piecesGroup = new THREE.Group();
+    ghostGroup = new THREE.Group();
+    scene.add(ghostGroup, piecesGroup);
 
     createBoardFrame(scene);
     rebuildPieces();
