@@ -32,13 +32,16 @@
   let camera: THREE.PerspectiveCamera | undefined;
   let renderer: THREE.WebGLRenderer | undefined;
   let controls: OrbitControls | undefined;
-  let piecesGroup: THREE.Group | undefined;
-  let ghostGroup: THREE.Group | undefined;
   let frame = 0;
   let resizeObserver: ResizeObserver | undefined;
+  let needsRender = true;
 
   const blockGeometry = new RoundedBoxGeometry(0.92, 0.92, 0.92, 3, 0.09);
   const materials = new Map<PieceType, THREE.MeshStandardMaterial>();
+  const ghostMaterials = new Map<PieceType, THREE.MeshBasicMaterial>();
+
+  // 위치 키(x:y:z) → 메시 풀. 재사용해서 매 프레임 새 메시 생성을 피한다.
+  const pool = new Map<string, THREE.Mesh>();
 
   function materialFor(type: PieceType) {
     if (!materials.has(type)) {
@@ -57,50 +60,80 @@
     return materials.get(type)!;
   }
 
+  function ghostMaterialFor(type: PieceType) {
+    if (!ghostMaterials.has(type)) {
+      ghostMaterials.set(
+        type,
+        new THREE.MeshBasicMaterial({
+          color: COLORS[type],
+          transparent: true,
+          opacity: 0.16,
+          depthWrite: false,
+          wireframe: true
+        })
+      );
+    }
+    return ghostMaterials.get(type)!;
+  }
+
   function positionBlock(mesh: THREE.Object3D, x: number, y: number, z = 0) {
     mesh.position.set(x - (BOARD_WIDTH - 1) / 2, BOARD_HEIGHT - 1 - y, z);
   }
 
+  function meshFor(key: string, type: PieceType, ghost: boolean): THREE.Mesh {
+    const existing = pool.get(key);
+    if (existing) {
+      existing.material = ghost ? ghostMaterialFor(type) : materialFor(type);
+      existing.visible = true;
+      return existing;
+    }
+    const mesh = new THREE.Mesh(blockGeometry, ghost ? ghostMaterialFor(type) : materialFor(type));
+    mesh.castShadow = !ghost;
+    mesh.receiveShadow = !ghost;
+    pool.set(key, mesh);
+    return mesh;
+  }
+
+  function place(key: string, type: PieceType, x: number, y: number, z: number, ghost: boolean) {
+    const mesh = meshFor(key, type, ghost);
+    positionBlock(mesh, x, y, z);
+  }
+
   function rebuildPieces() {
-    if (!scene || !piecesGroup || !ghostGroup) return;
-    piecesGroup.clear();
-    ghostGroup.clear();
+    if (!scene || !renderer) return;
+    const wanted = new Set<string>();
 
     board.forEach((row, y) =>
       row.forEach((type, x) => {
         if (!type) return;
-        const block = new THREE.Mesh(blockGeometry, materialFor(type));
-        positionBlock(block, x, y, 0);
-        block.castShadow = true;
-        block.receiveShadow = true;
-        piecesGroup?.add(block);
+        const key = `b:${x}:${y}`;
+        wanted.add(key);
+        place(key, type, x, y, 0, false);
       })
     );
 
     if (status !== 'over') {
       for (const [x, y] of cellsFor(active)) {
         if (y < 0) continue;
-        const block = new THREE.Mesh(blockGeometry, materialFor(active.type));
-        positionBlock(block, x, y, 0.08);
-        block.castShadow = true;
-        piecesGroup.add(block);
+        const key = `a:${x}:${y}`;
+        wanted.add(key);
+        place(key, active.type, x, y, 0.08, false);
       }
 
       const landingY = ghostY(board, active);
-      const ghostMaterial = new THREE.MeshBasicMaterial({
-        color: COLORS[active.type],
-        transparent: true,
-        opacity: 0.16,
-        depthWrite: false,
-        wireframe: true
-      });
       for (const [x, y] of cellsFor({ ...active, y: landingY })) {
         if (y < 0) continue;
-        const block = new THREE.Mesh(blockGeometry, ghostMaterial);
-        positionBlock(block, x, y, -0.03);
-        ghostGroup.add(block);
+        const key = `g:${x}:${y}`;
+        wanted.add(key);
+        place(key, active.type, x, y, -0.03, true);
       }
     }
+
+    // 이번 상태에서 쓰이지 않는 풀 메시는 숨긴다.
+    for (const [key, mesh] of pool) {
+      if (!wanted.has(key)) mesh.visible = false;
+    }
+    needsRender = true;
   }
 
   function resize() {
@@ -110,6 +143,7 @@
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    needsRender = true;
   }
 
   function createBoardFrame(targetScene: THREE.Scene) {
@@ -152,6 +186,8 @@
   }
 
   onMount(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2('#070910', 0.024);
 
@@ -168,7 +204,7 @@
 
     controls = new OrbitControls(camera, canvas);
     controls.target.set(0, 9.2, 0);
-    controls.enableDamping = true;
+    controls.enableDamping = !reducedMotion;
     controls.dampingFactor = 0.06;
     controls.enablePan = false;
     controls.enableZoom = false;
@@ -176,6 +212,9 @@
     controls.maxAzimuthAngle = 0.48;
     controls.minPolarAngle = 1.2;
     controls.maxPolarAngle = 1.86;
+    controls.addEventListener('change', () => {
+      needsRender = true;
+    });
     controls.update();
 
     scene.add(new THREE.HemisphereLight('#cce9ff', '#080912', 1.65));
@@ -192,9 +231,6 @@
     scene.add(blueLight);
 
     createBoardFrame(scene);
-    piecesGroup = new THREE.Group();
-    ghostGroup = new THREE.Group();
-    scene.add(ghostGroup, piecesGroup);
     rebuildPieces();
 
     resizeObserver = new ResizeObserver(resize);
@@ -204,7 +240,11 @@
     const animate = () => {
       frame = requestAnimationFrame(animate);
       controls?.update();
-      renderer?.render(scene!, camera!);
+      // 플레이 중에는 매 프레임 렌더(낙하/회전 반응), 그 외에는 변경 시에만 렌더.
+      if (needsRender || status === 'playing') {
+        renderer?.render(scene!, camera!);
+        needsRender = false;
+      }
     };
     animate();
 
@@ -215,6 +255,8 @@
       renderer?.dispose();
       blockGeometry.dispose();
       materials.forEach((material) => material.dispose());
+      ghostMaterials.forEach((material) => material.dispose());
+      pool.clear();
     };
   });
 

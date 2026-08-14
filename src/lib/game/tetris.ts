@@ -73,9 +73,6 @@ export const createPiece = (type: PieceType): Piece => ({
   y: -1
 });
 
-export const rotateShape = (shape: number[][]): number[][] =>
-  shape[0].map((_, column) => shape.map((row) => row[column]).reverse());
-
 export function collides(board: Board, piece: Piece, dx = 0, dy = 0, shape = piece.shape): boolean {
   for (let row = 0; row < shape.length; row += 1) {
     for (let column = 0; column < shape[row].length; column += 1) {

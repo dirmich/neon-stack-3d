@@ -12,6 +12,7 @@
     Pause,
     Play,
     RefreshCw,
+    RotateCcw,
     RotateCw,
     Sparkles,
     Trophy,
@@ -23,52 +24,59 @@
   import Card from './lib/components/ui/Card.svelte';
   import PiecePreview from './lib/components/PiecePreview.svelte';
   import ThreeBoard from './lib/components/ThreeBoard.svelte';
-  import {
-    clearFullRows,
-    cloneShape,
-    collides,
-    createBoard,
-    createPiece,
-    ghostY,
-    mergePiece,
-    rotateShape,
-    shuffledBag,
-    type Board,
-    type Piece,
-    type PieceType
-  } from './lib/game/tetris';
+  import { TetrisEngine, type GameStatus } from './lib/game/engine';
+  import { MusicPlayer } from './lib/game/music';
+  import type { Board, Piece, PieceType } from './lib/game/tetris';
 
-  type GameStatus = 'ready' | 'playing' | 'paused' | 'over';
+  interface GameView {
+    status: GameStatus;
+    board: Board;
+    active: Piece;
+    held: PieceType | null;
+    canHold: boolean;
+    score: number;
+    lines: number;
+    level: number;
+    combo: number;
+    backToBack: boolean;
+    clearFlash: number;
+    next: PieceType[];
+  }
 
-  let bag = $state<PieceType[]>(shuffledBag());
-  let board = $state<Board>(createBoard());
-  let active = $state<Piece>(createPiece(takeFromBag()));
-  let held = $state<PieceType | null>(null);
-  let canHold = $state(true);
-  let score = $state(0);
-  let lines = $state(0);
-  let level = $state(1);
+  // 엔진은 프레임워크 무관한 평범한 클래스 — Svelte 반응성은 스냅샷 뷰가 담당한다.
+  const engine = new TetrisEngine();
+  let view = $state<GameView>(snapshot());
   let highScore = $state(0);
-  let status = $state<GameStatus>('ready');
   let soundEnabled = $state(true);
   let showHelp = $state(false);
-  let clearFlash = $state(0);
-  let lastDropAt = 0;
-  let raf = 0;
   let audioContext: AudioContext | null = null;
+  const music = new MusicPlayer();
+  let raf = 0;
 
-  let nextPieces = $derived(bag.slice(0, 3));
-  let dropInterval = $derived(Math.max(95, 870 - (level - 1) * 68));
-  let levelProgress = $derived((lines % 10) * 10);
+  let nextPieces = $derived(view.next);
+  let levelProgress = $derived((view.lines % 10) * 10);
 
-  function takeFromBag(): PieceType {
-    if (bag.length < 8) bag.push(...shuffledBag());
-    return bag.shift()!;
+  function snapshot(): GameView {
+    return {
+      status: engine.status,
+      board: engine.board,
+      active: engine.active,
+      held: engine.held,
+      canHold: engine.canHold,
+      score: engine.score,
+      lines: engine.lines,
+      level: engine.level,
+      combo: engine.combo,
+      backToBack: engine.backToBack,
+      clearFlash: engine.clearFlash,
+      next: engine.nextQueue(3)
+    };
   }
 
   function playTone(frequency: number, duration = 0.06, volume = 0.035) {
     if (!soundEnabled || typeof window === 'undefined') return;
     audioContext ??= new AudioContext();
+    if (audioContext.state === 'suspended') void audioContext.resume();
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     oscillator.type = 'sine';
@@ -80,156 +88,91 @@
     oscillator.stop(audioContext.currentTime + duration);
   }
 
-  function resetGame(startImmediately = true) {
-    bag = shuffledBag();
-    board = createBoard();
-    active = createPiece(takeFromBag());
-    held = null;
-    canHold = true;
-    score = 0;
-    lines = 0;
-    level = 1;
-    status = startImmediately ? 'playing' : 'ready';
-    lastDropAt = performance.now();
-    if (startImmediately) playTone(520, 0.09);
-  }
-
-  function finishGame() {
-    status = 'over';
-    highScore = Math.max(highScore, score);
-    localStorage.setItem('neon-stack-high-score', String(highScore));
-    playTone(120, 0.34, 0.06);
-  }
-
-  function spawnNext() {
-    const next = createPiece(takeFromBag());
-    active = next;
-    canHold = true;
-    if (collides(board, next)) finishGame();
-  }
-
-  function lockPiece(piece = active) {
-    const merged = mergePiece(board, piece);
-    const cleared = clearFullRows(merged);
-    board = cleared.board;
-    if (cleared.count > 0) {
-      const points = [0, 100, 300, 500, 800][cleared.count] * level;
-      score += points;
-      lines += cleared.count;
-      level = Math.floor(lines / 10) + 1;
-      clearFlash += 1;
-      playTone(cleared.count === 4 ? 960 : 740, 0.14, 0.055);
-    } else {
-      playTone(180, 0.035, 0.018);
-    }
-    spawnNext();
-  }
-
-  function move(dx: number) {
-    if (status !== 'playing' || collides(board, active, dx, 0)) return;
-    active = { ...active, x: active.x + dx };
-    playTone(260, 0.025, 0.012);
-  }
-
-  function stepDown(manual = false) {
-    if (status !== 'playing') return;
-    if (!collides(board, active, 0, 1)) {
-      active = { ...active, y: active.y + 1 };
-      if (manual) score += 1;
-    } else {
-      lockPiece();
-    }
-    lastDropAt = performance.now();
-  }
-
-  function hardDrop() {
-    if (status !== 'playing') return;
-    const target = ghostY(board, active);
-    const distance = target - active.y;
-    const dropped = { ...active, y: target };
-    active = dropped;
-    score += distance * 2;
-    playTone(110, 0.055, 0.04);
-    lockPiece(dropped);
-    lastDropAt = performance.now();
-  }
-
-  function rotate() {
-    if (status !== 'playing' || active.type === 'O') return;
-    const rotated = rotateShape(active.shape);
-    for (const kick of [0, -1, 1, -2, 2]) {
-      if (!collides(board, active, kick, 0, rotated)) {
-        active = { ...active, x: active.x + kick, shape: rotated };
-        playTone(410, 0.035, 0.018);
-        return;
-      }
-    }
-  }
-
-  function holdPiece() {
-    if (status !== 'playing' || !canHold) return;
-    const outgoing = active.type;
-    if (held) {
-      active = createPiece(held);
-      held = outgoing;
-    } else {
-      held = outgoing;
-      active = createPiece(takeFromBag());
-    }
-    canHold = false;
-    playTone(330, 0.06, 0.025);
-    if (collides(board, active)) finishGame();
+  function unlockAudio() {
+    music.unlock();
+    if (audioContext && audioContext.state === 'suspended') void audioContext.resume();
   }
 
   function togglePause() {
-    if (status === 'ready') {
-      status = 'playing';
-      lastDropAt = performance.now();
-      playTone(520, 0.08);
-      return;
-    }
-    if (status === 'over') return;
-    status = status === 'paused' ? 'playing' : 'paused';
-    lastDropAt = performance.now();
-    playTone(status === 'playing' ? 520 : 230, 0.06);
+    unlockAudio();
+    engine.togglePause();
   }
 
   function handleKeydown(event: KeyboardEvent) {
-    if (showHelp && event.key === 'Escape') {
+    const key = event.key;
+    if (showHelp && key === 'Escape') {
       showHelp = false;
       return;
     }
-    if (['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' ', 'c', 'C', 'p', 'P'].includes(event.key)) {
+    if (
+      ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' ', 'z', 'Z', 'c', 'C', 'p', 'P', 'r', 'R', 'Shift'].includes(
+        key
+      )
+    ) {
       event.preventDefault();
     }
-    if (event.key === 'p' || event.key === 'P' || event.key === 'Escape') return togglePause();
-    if (status !== 'playing') return;
-    if (event.key === 'ArrowLeft' || event.key === 'a' || event.key === 'A') move(-1);
-    if (event.key === 'ArrowRight' || event.key === 'd' || event.key === 'D') move(1);
-    if (event.key === 'ArrowDown' || event.key === 's' || event.key === 'S') stepDown(true);
-    if (event.key === 'ArrowUp' || event.key === 'w' || event.key === 'W') rotate();
-    if (event.key === ' ') hardDrop();
-    if (event.key === 'c' || event.key === 'C' || event.key === 'Shift') holdPiece();
+    unlockAudio();
+    if (key === 'p' || key === 'P' || key === 'Escape') return togglePause();
+    if (key === 'r' || key === 'R') return engine.reset(true);
+    if (key === 'z' || key === 'Z') return engine.rotate(-1);
+    if (key === 'ArrowUp' || key === 'w' || key === 'W') return engine.rotate(1);
+    if (key === ' ') return engine.hardDrop();
+    if (key === 'c' || key === 'C' || key === 'Shift') return engine.hold();
+    if (key === 'ArrowLeft' || key === 'a' || key === 'A') return engine.press('left');
+    if (key === 'ArrowRight' || key === 'd' || key === 'D') return engine.press('right');
+    if (key === 'ArrowDown' || key === 's' || key === 'S') return engine.press('down');
   }
+
+  function handleKeyup(event: KeyboardEvent) {
+    const key = event.key;
+    if (key === 'ArrowLeft' || key === 'a' || key === 'A') return engine.release('left');
+    if (key === 'ArrowRight' || key === 'd' || key === 'D') return engine.release('right');
+    if (key === 'ArrowDown' || key === 's' || key === 'S') return engine.release('down');
+  }
+
+  $effect(() => {
+    music.setEnabled(soundEnabled && !document.hidden);
+  });
 
   onMount(() => {
     highScore = Number(localStorage.getItem('neon-stack-high-score') || 0);
+    engine.onEvent = (event) => {
+      if (event.type === 'stateChange') {
+        view = snapshot();
+      } else if (event.type === 'tone') {
+        playTone(event.frequency, event.duration, event.volume);
+      } else if (event.type === 'gameOver') {
+        highScore = Math.max(highScore, engine.score);
+        localStorage.setItem('neon-stack-high-score', String(highScore));
+        playTone(120, 0.34, 0.06);
+      }
+    };
+
+    let last = performance.now();
     const frameLoop = (now: number) => {
-      if (status === 'playing' && now - lastDropAt >= dropInterval) stepDown();
+      const delta = Math.min(now - last, 100);
+      last = now;
+      engine.update(delta);
       raf = requestAnimationFrame(frameLoop);
     };
-    lastDropAt = performance.now();
     raf = requestAnimationFrame(frameLoop);
+
     window.addEventListener('keydown', handleKeydown);
+    window.addEventListener('keyup', handleKeyup);
+    window.addEventListener('pointerdown', unlockAudio);
     const handleVisibility = () => {
-      if (document.hidden && status === 'playing') status = 'paused';
+      if (document.hidden && engine.status === 'playing') engine.togglePause();
+      music.setEnabled(soundEnabled && !document.hidden);
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('keydown', handleKeydown);
+      window.removeEventListener('keyup', handleKeyup);
+      window.removeEventListener('pointerdown', unlockAudio);
       document.removeEventListener('visibilitychange', handleVisibility);
       audioContext?.close();
+      music.dispose();
     };
   });
 </script>
@@ -259,7 +202,7 @@
       <Button variant="ghost" size="icon" aria-label={soundEnabled ? '소리 끄기' : '소리 켜기'} onclick={() => (soundEnabled = !soundEnabled)}>
         {#if soundEnabled}<Volume2 size={19} />{:else}<VolumeX size={19} />{/if}
       </Button>
-      <Button variant="outline" size="sm" onclick={() => resetGame(true)}>
+      <Button variant="outline" size="sm" onclick={() => engine.reset(true)}>
         <RefreshCw size={14} /> <span class="hidden sm:inline">새 게임</span>
       </Button>
     </div>
@@ -272,11 +215,19 @@
           <Gauge size={15} />
           <span class="text-[10px] font-bold tracking-[.2em]">SCORE</span>
         </div>
-        <p class="font-mono text-3xl font-black tracking-[-.06em] text-white sm:text-4xl">{score.toLocaleString()}</p>
+        <p class="font-mono text-3xl font-black tracking-[-.06em] text-white sm:text-4xl">{view.score.toLocaleString()}</p>
         <div class="mt-4 h-px bg-gradient-to-r from-white/10 to-transparent"></div>
         <div class="mt-4 flex items-center justify-between text-xs">
           <span class="text-muted-foreground">최고 점수</span>
           <span class="font-mono font-bold text-primary">{highScore.toLocaleString()}</span>
+        </div>
+        <div class="mt-3 flex min-h-6 flex-wrap items-center gap-1.5">
+          {#if view.combo > 1}
+            <span class="rounded-full border border-cyan-300/20 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-bold text-cyan-300">COMBO ×{view.combo}</span>
+          {/if}
+          {#if view.backToBack}
+            <span class="rounded-full border border-violet-300/20 bg-violet-400/10 px-2 py-0.5 text-[10px] font-bold text-violet-300">BACK-TO-BACK ×1.5</span>
+          {/if}
         </div>
       </Card>
 
@@ -286,13 +237,13 @@
           <span class="text-[10px] font-bold tracking-[.2em]">HOLD</span>
         </div>
         <div class="flex h-[68px] items-center justify-center rounded-xl border border-dashed border-white/10 bg-black/15">
-          {#if held}
-            <PiecePreview type={held} size="lg" />
+          {#if view.held}
+            <PiecePreview type={view.held} size="lg" />
           {:else}
             <span class="text-[10px] font-semibold tracking-[.2em] text-white/20">EMPTY</span>
           {/if}
         </div>
-        <Button variant="ghost" size="sm" class="mt-2 w-full text-[10px]" disabled={!canHold || status !== 'playing'} onclick={holdPiece}>
+        <Button variant="ghost" size="sm" class="mt-2 w-full text-[10px]" disabled={!view.canHold || view.status !== 'playing'} onclick={() => engine.hold()}>
           C / SHIFT
         </Button>
       </Card>
@@ -305,31 +256,32 @@
           </div>
           <div class="space-y-3.5 text-xs">
             <div class="flex items-center justify-between"><span class="text-muted-foreground">이동</span><kbd class="key">← ↓ →</kbd></div>
-            <div class="flex items-center justify-between"><span class="text-muted-foreground">회전</span><kbd class="key">↑</kbd></div>
+            <div class="flex items-center justify-between"><span class="text-muted-foreground">회전</span><kbd class="key">↑ / Z</kbd></div>
             <div class="flex items-center justify-between"><span class="text-muted-foreground">바로 내리기</span><kbd class="key wide">SPACE</kbd></div>
             <div class="flex items-center justify-between"><span class="text-muted-foreground">블록 보관</span><kbd class="key">C</kbd></div>
             <div class="flex items-center justify-between"><span class="text-muted-foreground">일시정지</span><kbd class="key">P</kbd></div>
+            <div class="flex items-center justify-between"><span class="text-muted-foreground">다시 시작</span><kbd class="key">R</kbd></div>
           </div>
         </div>
-        <p class="mt-6 text-[10px] leading-5 text-white/25">보드를 드래그하면<br />3D 시점을 바꿀 수 있습니다.</p>
+        <p class="mt-6 text-[10px] leading-5 text-white/25">키를 누르고 있으면 자동 이동(DAS).<br />보드를 드래그하면 3D 시점이 바뀝니다.</p>
       </Card>
     </aside>
 
     <section class="order-1 min-h-[600px] lg:order-2 lg:min-h-0">
       <Card class="relative h-[72vh] min-h-[600px] overflow-hidden bg-[#0c0f17]/75 p-2 sm:h-[760px] lg:h-full">
         <div class="pointer-events-none absolute inset-x-8 top-0 h-px bg-gradient-to-r from-transparent via-cyan-300/50 to-transparent"></div>
-        <ThreeBoard {board} {active} {status} {clearFlash} />
+        <ThreeBoard board={view.board} active={view.active} status={view.status} clearFlash={view.clearFlash} />
 
-        {#if status !== 'playing'}
+        {#if view.status !== 'playing'}
           <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/68 p-6 backdrop-blur-[5px]">
             <div class="max-w-sm text-center">
-              {#if status === 'ready'}
+              {#if view.status === 'ready'}
                 <div class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10 text-primary shadow-[0_0_35px_rgba(215,255,69,.12)]"><Gamepad2 size={26} /></div>
                 <p class="mb-2 text-[10px] font-bold tracking-[.3em] text-primary">READY PLAYER ONE</p>
                 <h2 class="text-3xl font-black tracking-[-.05em]">쌓을 준비가<br />되셨나요?</h2>
                 <p class="mx-auto mt-3 max-w-[260px] text-sm leading-6 text-muted-foreground">빈틈없이 쌓고 한 번에 네 줄을 완성해 최고 점수를 경신하세요.</p>
                 <Button size="lg" class="mt-7 min-w-40" onclick={togglePause}><Play size={17} fill="currentColor" /> 게임 시작</Button>
-              {:else if status === 'paused'}
+              {:else if view.status === 'paused'}
                 <div class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border border-white/10 bg-white/[.06] text-white"><Pause size={25} /></div>
                 <p class="mb-2 text-[10px] font-bold tracking-[.3em] text-cyan-300">GAME PAUSED</p>
                 <h2 class="text-3xl font-black tracking-[-.05em]">잠시 멈춤</h2>
@@ -338,9 +290,9 @@
               {:else}
                 <div class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border border-rose-400/20 bg-rose-400/10 text-rose-300"><Trophy size={26} /></div>
                 <p class="mb-2 text-[10px] font-bold tracking-[.3em] text-rose-300">GAME OVER</p>
-                <h2 class="font-mono text-4xl font-black tracking-[-.06em]">{score.toLocaleString()}</h2>
-                <p class="mt-3 text-sm text-muted-foreground">{lines}줄 제거 · 레벨 {level}</p>
-                <Button size="lg" class="mt-7 min-w-40" onclick={() => resetGame(true)}><RefreshCw size={17} /> 다시 도전</Button>
+                <h2 class="font-mono text-4xl font-black tracking-[-.06em]">{view.score.toLocaleString()}</h2>
+                <p class="mt-3 text-sm text-muted-foreground">{view.lines}줄 제거 · 레벨 {view.level}</p>
+                <Button size="lg" class="mt-7 min-w-40" onclick={() => engine.reset(true)}><RefreshCw size={17} /> 다시 도전</Button>
               {/if}
             </div>
           </div>
@@ -370,25 +322,26 @@
       <Card class="p-5">
         <div class="mb-5 flex items-center justify-between">
           <span class="text-[10px] font-bold tracking-[.2em] text-muted-foreground">LEVEL</span>
-          <span class="font-mono text-2xl font-black text-primary">{String(level).padStart(2, '0')}</span>
+          <span class="font-mono text-2xl font-black text-primary">{String(view.level).padStart(2, '0')}</span>
         </div>
         <div class="h-1.5 overflow-hidden rounded-full bg-white/[.06]">
           <div class="h-full rounded-full bg-gradient-to-r from-cyan-400 to-primary transition-[width] duration-500" style={`width:${levelProgress}%`}></div>
         </div>
-        <div class="mt-3 flex items-center justify-between text-[10px] text-muted-foreground"><span>{lines} LINES</span><span>{10 - (lines % 10)} TO GO</span></div>
+        <div class="mt-3 flex items-center justify-between text-[10px] text-muted-foreground"><span>{view.lines} LINES</span><span>{10 - (view.lines % 10)} TO GO</span></div>
       </Card>
 
       <Card class="col-span-2 p-4 lg:col-auto lg:mt-auto">
-        <div class="grid grid-cols-5 gap-2">
-          <Button variant="secondary" size="icon" aria-label="왼쪽 이동" onclick={() => move(-1)}><ArrowLeft size={19} /></Button>
-          <Button variant="secondary" size="icon" aria-label="아래로 이동" onclick={() => stepDown(true)}><ArrowDown size={19} /></Button>
-          <Button variant="secondary" size="icon" aria-label="오른쪽 이동" onclick={() => move(1)}><ArrowRight size={19} /></Button>
-          <Button variant="secondary" size="icon" aria-label="회전" onclick={rotate}><RotateCw size={18} /></Button>
-          <Button variant="default" size="icon" aria-label="바로 내리기" onclick={hardDrop}><ChevronUp class="rotate-180" size={20} /></Button>
+        <div class="grid grid-cols-3 gap-2">
+          <Button variant="secondary" size="icon" aria-label="왼쪽 이동" onclick={() => engine.move(-1)}><ArrowLeft size={19} /></Button>
+          <Button variant="secondary" size="icon" aria-label="아래로 이동" onclick={() => engine.softDrop()}><ArrowDown size={19} /></Button>
+          <Button variant="secondary" size="icon" aria-label="오른쪽 이동" onclick={() => engine.move(1)}><ArrowRight size={19} /></Button>
+          <Button variant="secondary" size="icon" aria-label="시계 방향 회전" onclick={() => engine.rotate(1)}><RotateCw size={18} /></Button>
+          <Button variant="secondary" size="icon" aria-label="반시계 방향 회전" onclick={() => engine.rotate(-1)}><RotateCcw size={18} /></Button>
+          <Button variant="default" size="icon" aria-label="바로 내리기" onclick={() => engine.hardDrop()}><ChevronUp class="rotate-180" size={20} /></Button>
         </div>
         <div class="mt-2 grid grid-cols-2 gap-2">
-          <Button variant="ghost" size="sm" onclick={holdPiece}>HOLD</Button>
-          <Button variant="ghost" size="sm" onclick={togglePause}>{status === 'paused' ? 'RESUME' : 'PAUSE'}</Button>
+          <Button variant="ghost" size="sm" onclick={() => engine.hold()}>HOLD</Button>
+          <Button variant="ghost" size="sm" onclick={togglePause}>{view.status === 'paused' ? 'RESUME' : 'PAUSE'}</Button>
         </div>
       </Card>
     </aside>
@@ -405,12 +358,12 @@
           <Button variant="ghost" size="icon" aria-label="닫기" onclick={() => (showHelp = false)}><X size={19} /></Button>
         </div>
         <div class="mt-6 space-y-4 text-sm leading-6 text-muted-foreground">
-          <p>블록을 이동하고 회전해 가로 한 줄을 빈틈없이 채우면 그 줄이 사라집니다. 여러 줄을 동시에 지울수록 더 높은 점수를 얻습니다.</p>
+          <p>블록을 이동하고 회전해 가로 한 줄을 빈틈없이 채우면 그 줄이 사라집니다. 여러 줄을 동시에 지울수록 더 높은 점수를 얻습니다. T-spin과 백투백(연속 테트리스)은 추가 보너스를 줍니다.</p>
           <div class="grid grid-cols-2 gap-3">
             <div class="rounded-xl border border-white/[.06] bg-white/[.025] p-3"><strong class="block text-xs text-white">고스트 블록</strong><span class="text-xs">현재 착지 위치</span></div>
             <div class="rounded-xl border border-white/[.06] bg-white/[.025] p-3"><strong class="block text-xs text-white">HOLD</strong><span class="text-xs">블록 1개 보관</span></div>
           </div>
-          <p class="text-xs">키보드는 방향키, Space, C, P를 사용합니다. 터치 환경에서는 화면 아래 조작 버튼을 이용할 수 있습니다.</p>
+          <p class="text-xs">키보드: 방향키(이동/회전), Z(반시계 회전), Space(바로 내리기), C(보관), P(일시정지), R(다시 시작). 방향키를 누르고 있으면 자동 이동(DAS)이 작동합니다. 터치 환경에서는 화면 아래 조작 버튼을 이용할 수 있습니다.</p>
         </div>
         <Button class="mt-6 w-full" onclick={() => (showHelp = false)}>확인</Button>
       </Card>
