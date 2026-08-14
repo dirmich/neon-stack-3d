@@ -38,6 +38,13 @@
   let resizeObserver: ResizeObserver | undefined;
   let needsRender = true;
 
+  // 줄 제거 플래시
+  const FLASH_DURATION = 350; // ms
+  let reducedMotion = false;
+  let flashMesh: THREE.Mesh | undefined;
+  let flashStartedAt = 0;
+  let prevClearFlash = 0;
+
   const blockGeometry = new RoundedBoxGeometry(0.92, 0.92, 0.92, 3, 0.09);
   const materials = new Map<PieceType, THREE.MeshStandardMaterial>();
   const ghostMaterials = new Map<PieceType, THREE.MeshBasicMaterial>();
@@ -101,6 +108,33 @@
   function place(key: string, type: PieceType, x: number, y: number, z: number, ghost: boolean) {
     const mesh = meshFor(key, type, ghost);
     positionBlock(mesh, x, y, z);
+  }
+
+  function ensureFlashMesh() {
+    if (flashMesh || !scene) return;
+    const geometry = new THREE.PlaneGeometry(11.1, 21.1);
+    flashMesh = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        color: '#d7ff45',
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide
+      })
+    );
+    flashMesh.position.set(0, 9.5, 0.35); // 블록(z 0.08)보다 앞
+    scene.add(flashMesh);
+  }
+
+  function startClearFlash() {
+    if (reducedMotion || !scene || !renderer) return;
+    ensureFlashMesh();
+    if (!flashMesh) return;
+    flashMesh.visible = true;
+    flashStartedAt = performance.now();
+    needsRender = true;
   }
 
   function rebuildPieces() {
@@ -190,7 +224,7 @@
   }
 
   onMount(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2('#070910', 0.024);
@@ -248,6 +282,19 @@
     const animate = () => {
       frame = requestAnimationFrame(animate);
       controls?.update();
+
+      // 줄 제거 플래시 페이드아웃
+      if (flashMesh?.visible) {
+        const elapsed = performance.now() - flashStartedAt;
+        if (elapsed >= FLASH_DURATION) {
+          flashMesh.visible = false;
+        } else {
+          const t = elapsed / FLASH_DURATION;
+          (flashMesh.material as THREE.MeshBasicMaterial).opacity = 0.5 * (1 - t);
+          needsRender = true;
+        }
+      }
+
       // 플레이 중에는 매 프레임 렌더(낙하/회전 반응), 그 외에는 변경 시에만 렌더.
       if (needsRender || status === 'playing') {
         renderer?.render(scene!, camera!);
@@ -264,6 +311,10 @@
       blockGeometry.dispose();
       materials.forEach((material) => material.dispose());
       ghostMaterials.forEach((material) => material.dispose());
+      if (flashMesh) {
+        flashMesh.geometry.dispose();
+        (flashMesh.material as THREE.Material).dispose();
+      }
       pool.clear();
     };
   });
@@ -274,6 +325,11 @@
     status;
     clearFlash;
     rebuildPieces();
+    // clearFlash 증가 시에만 플래시 연출 (reset으로 0으로 되돌아갈 때는 제외)
+    if (clearFlash > prevClearFlash) {
+      startClearFlash();
+      prevClearFlash = clearFlash;
+    }
   });
 </script>
 
