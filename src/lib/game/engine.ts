@@ -116,6 +116,11 @@ export class TetrisEngine {
     this._dasElapsed = 0;
     this._repeatElapsed = 0;
     this._downElapsed = 0;
+    // 눌린 키 상태까지 완전히 초기화 (재시작 직후 DAS/소프트드롭 잔상 방지)
+    this._leftPressed = false;
+    this._rightPressed = false;
+    this._downPressed = false;
+    this._dirty = false;
     this.status = startImmediately ? 'playing' : 'ready';
     if (startImmediately) this.emitTone(520, 0.09);
     this.markDirty();
@@ -126,6 +131,8 @@ export class TetrisEngine {
     if (this.status === 'ready') {
       this.status = 'playing';
       this.emitTone(520, 0.08);
+      this.markDirty();
+      this.flush();
       return;
     }
     if (this.status === 'over') return;
@@ -215,6 +222,7 @@ export class TetrisEngine {
     this._lastMove = 'none';
     this._lockTimer = 0;
     this._lockResets = 0;
+    this._gravityAccumulator = 0;
     this.emitTone(330, 0.06, 0.025);
     if (collides(this.board, this.active)) this.gameOver();
     this.markDirty();
@@ -380,6 +388,7 @@ export class TetrisEngine {
   gameOver(): void {
     this.status = 'over';
     this.combo = 0;
+    this.backToBack = false;
     this._dir = null;
     this.markDirty();
     this.flush();

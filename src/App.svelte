@@ -8,7 +8,6 @@
     CircleHelp,
     Gamepad2,
     Gauge,
-    Headphones,
     Pause,
     Play,
     RefreshCw,
@@ -135,7 +134,11 @@
   });
 
   onMount(() => {
-    highScore = Number(localStorage.getItem('neon-stack-high-score') || 0);
+    try {
+      highScore = Number(localStorage.getItem('neon-stack-high-score') || 0);
+    } catch {
+      highScore = 0;
+    }
     engine.onEvent = (event) => {
       if (event.type === 'stateChange') {
         view = snapshot();
@@ -143,7 +146,11 @@
         playTone(event.frequency, event.duration, event.volume);
       } else if (event.type === 'gameOver') {
         highScore = Math.max(highScore, engine.score);
-        localStorage.setItem('neon-stack-high-score', String(highScore));
+        try {
+          localStorage.setItem('neon-stack-high-score', String(highScore));
+        } catch {
+          /* 프라이빗 모드 등 저장 불가 환경 */
+        }
         playTone(120, 0.34, 0.06);
       }
     };
@@ -160,6 +167,13 @@
     window.addEventListener('keydown', handleKeydown);
     window.addEventListener('keyup', handleKeyup);
     window.addEventListener('pointerdown', unlockAudio);
+    // 창 포커스를 잃으면 눌린 키를 전부 해제 (DAS/소프트드롭 잔상 방지)
+    const handleBlur = () => {
+      engine.release('left');
+      engine.release('right');
+      engine.release('down');
+    };
+    window.addEventListener('blur', handleBlur);
     const handleVisibility = () => {
       if (document.hidden && engine.status === 'playing') engine.togglePause();
       music.setEnabled(soundEnabled && !document.hidden);
@@ -170,6 +184,7 @@
       window.removeEventListener('keydown', handleKeydown);
       window.removeEventListener('keyup', handleKeyup);
       window.removeEventListener('pointerdown', unlockAudio);
+      window.removeEventListener('blur', handleBlur);
       document.removeEventListener('visibilitychange', handleVisibility);
       audioContext?.close();
       music.dispose();
@@ -332,9 +347,22 @@
 
       <Card class="col-span-2 p-4 lg:col-auto lg:mt-auto">
         <div class="grid grid-cols-3 gap-2">
-          <Button variant="secondary" size="icon" aria-label="왼쪽 이동" onclick={() => engine.move(-1)}><ArrowLeft size={19} /></Button>
-          <Button variant="secondary" size="icon" aria-label="아래로 이동" onclick={() => engine.softDrop()}><ArrowDown size={19} /></Button>
-          <Button variant="secondary" size="icon" aria-label="오른쪽 이동" onclick={() => engine.move(1)}><ArrowRight size={19} /></Button>
+          <!-- 이동/소프트드롭은 누르고 있으면 DAS가 작동하도록 포인터 이벤트 사용 -->
+          <Button variant="secondary" size="icon" class="touch-manipulation select-none" aria-label="왼쪽 이동"
+            onpointerdown={() => engine.press('left')}
+            onpointerup={() => engine.release('left')}
+            onpointerleave={() => engine.release('left')}
+            onpointercancel={() => engine.release('left')}><ArrowLeft size={19} /></Button>
+          <Button variant="secondary" size="icon" class="touch-manipulation select-none" aria-label="아래로 이동"
+            onpointerdown={() => engine.press('down')}
+            onpointerup={() => engine.release('down')}
+            onpointerleave={() => engine.release('down')}
+            onpointercancel={() => engine.release('down')}><ArrowDown size={19} /></Button>
+          <Button variant="secondary" size="icon" class="touch-manipulation select-none" aria-label="오른쪽 이동"
+            onpointerdown={() => engine.press('right')}
+            onpointerup={() => engine.release('right')}
+            onpointerleave={() => engine.release('right')}
+            onpointercancel={() => engine.release('right')}><ArrowRight size={19} /></Button>
           <Button variant="secondary" size="icon" aria-label="시계 방향 회전" onclick={() => engine.rotate(1)}><RotateCw size={18} /></Button>
           <Button variant="secondary" size="icon" aria-label="반시계 방향 회전" onclick={() => engine.rotate(-1)}><RotateCcw size={18} /></Button>
           <Button variant="default" size="icon" aria-label="바로 내리기" onclick={() => engine.hardDrop()}><ChevronUp class="rotate-180" size={20} /></Button>

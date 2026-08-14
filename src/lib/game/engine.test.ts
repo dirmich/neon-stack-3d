@@ -194,6 +194,36 @@ describe('탑아웃', () => {
   });
 });
 
+describe('상태 전이', () => {
+  it('ready에서 togglePause하면 stateChange를 내보내고 playing이 된다', () => {
+    const engine = new TetrisEngine();
+    const events: string[] = [];
+    engine.onEvent = (event) => events.push(event.type);
+    engine.togglePause();
+    expect(engine.status).toBe('playing');
+    expect(events).toContain('stateChange');
+  });
+
+  it('reset은 눌린 키 상태를 초기화한다 (재시작 후 DAS 잔상 방지)', () => {
+    const engine = new TetrisEngine();
+    engine.reset(true);
+    engine.press('left');
+    engine.press('down');
+    engine.reset(true);
+    expect(engine._leftPressed).toBe(false);
+    expect(engine._downPressed).toBe(false);
+    expect(engine._dir).toBeNull();
+  });
+
+  it('hold는 중력 누적을 초기화한다', () => {
+    const engine = new TetrisEngine();
+    engine.reset(true);
+    engine._gravityAccumulator = 500;
+    engine.hold();
+    expect(engine._gravityAccumulator).toBe(0);
+  });
+});
+
 describe('HOLD', () => {
   it('보관 후 다시 보관하면 원래 피스가 돌아온다', () => {
     const engine = new TetrisEngine();

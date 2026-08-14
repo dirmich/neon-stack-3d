@@ -20,15 +20,8 @@ export class MusicPlayer {
 
   setEnabled(on: boolean): void {
     this.enabled = on;
+    if (!this.ctx) return; // 컨텍스트는 unlock()의 사용자 제스처에서 생성
     if (on) {
-      if (!this.ctx) {
-        const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (!AudioContextCtor) return;
-        this.ctx = new AudioContextCtor();
-        this.master = this.ctx.createGain();
-        this.master.gain.value = 0.055;
-        this.master.connect(this.ctx.destination);
-      }
       void this.ctx.resume?.();
       this.nextTime = this.ctx.currentTime + 0.08;
       this.timer ??= setInterval(() => this.schedule(), 200);
@@ -38,9 +31,21 @@ export class MusicPlayer {
     }
   }
 
-  /** 사용자 제스처 시점에 호출 — 지연 생성된 컨텍스트를 resume한다. */
+  /** 사용자 제스처 시점에 호출 — AudioContext를 지연 생성하고 resume한다. */
   unlock(): void {
+    if (!this.ctx && this.enabled) {
+      const AudioContextCtor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextCtor) return;
+      this.ctx = new AudioContextCtor();
+      this.master = this.ctx.createGain();
+      this.master.gain.value = 0.055;
+      this.master.connect(this.ctx.destination);
+    }
     if (this.ctx && this.ctx.state === 'suspended') void this.ctx.resume();
+    if (this.enabled && this.ctx && !this.timer) {
+      this.nextTime = this.ctx.currentTime + 0.08;
+      this.timer = setInterval(() => this.schedule(), 200);
+    }
   }
 
   dispose(): void {
