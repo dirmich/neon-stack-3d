@@ -47,14 +47,14 @@ npm run preview
 
 단일 플레이와 달리 배틀 모드는 서버가 권위(authoritative) 상태를 소유한다.
 
-- **Go 게이트웨이** (`server/go`) — WebSocket 허브, 방/매치메이킹, PostgreSQL 저장, Rust 연동
-- **Rust 레퍼리** (`server/rust`) — 결정적 배틀 엔진(가비지 공격/수신, 탑아웃 판정)을 독립 서비스로 수행
+- **Go 게이트웨이** (`backend/go`) — WebSocket 허브, 방/매치메이킹, PostgreSQL 저장, Rust 연동
+- **Rust 레퍼리** (`backend/rust`) — 결정적 배틀 엔진(가비지 공격/수신, 탑아웃 판정)을 독립 서비스로 수행
 - **PostgreSQL** — 매치 기록, 승패, 리더보드
 
 ### 백엔드 실행
 
 ```bash
-cd server
+cd backend
 docker compose up -d --build
 # PostgreSQL :5432 / Go :8080 / Rust :8081
 ```
