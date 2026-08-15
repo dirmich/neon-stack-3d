@@ -51,15 +51,20 @@ npm run preview
 - **Rust 레퍼리** (`backend/rust`) — 결정적 배틀 엔진(가비지 공격/수신, 탑아웃 판정)을 독립 서비스로 수행
 - **PostgreSQL** — 매치 기록, 승패, 리더보드
 
-### 백엔드 실행
+### 도커 실행 (전체 스택)
 
 ```bash
-cd backend
 docker compose up -d --build
-# PostgreSQL :5432 / Go :8080 / Rust :8081
+# 프론트엔드 :3000 (nginx — SPA + /api·/ws 프록시)
+# Go 게이트웨이 :8000 (REST + WebSocket)
+# PostgreSQL·Rust 레퍼리는 내부망 전용
 ```
 
-프론트엔드 개발 서버는 `/api`, `/ws`를 자동으로 `localhost:8080`에 프록시한다.
+`http://localhost:3000`으로 접속하면 배틀 모드를 포함한 전체 게임을 즐길 수 있다.
+
+### 개발(네이티브) 실행
+
+프론트엔드 개발 서버는 `/api`, `/ws`를 자동으로 `localhost:8000`(게이트웨이)에 프록시한다.
 
 ```bash
 npm run dev

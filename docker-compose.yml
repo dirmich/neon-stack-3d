@@ -1,19 +1,27 @@
-# 배틀 모드 백엔드 전체 스택
+# NEON STACK 전체 스택 (프론트 + 배틀 백엔드)
 #   docker compose up -d --build
-# - PostgreSQL :5432
-# - Go gateway  :8080 (REST + WebSocket)
-# - Rust referee:8081 (게이트웨이 전용 내부 API)
 #
-# 프론트엔드 개발 서버(vite)는 /api, /ws 프록시로 8080을 바라본다.
+# 외부 노출:
+#   frontend :3000  (nginx — SPA 서빙 + /api·/ws를 gateway로 프록시)
+#   gateway  :8000  (Go 게이트웨이 — REST + WebSocket)
+# 내부망 전용: referee(:8081), postgres(:5432)
+#
+# 개발(네이티브) 실행은 .freebuff/run.md 참고 — vite dev 서버는 /api·/ws를
+# localhost:8000으로 프록시한다.
 services:
+  frontend:
+    build: .
+    ports:
+      - '3000:80'
+    depends_on:
+      - gateway
+
   postgres:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: neon
       POSTGRES_PASSWORD: neon
       POSTGRES_DB: neon
-    ports:
-      - '5432:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,18 +31,16 @@ services:
       retries: 10
 
   referee:
-    build: ./rust
-    ports:
-      - '8081:8081'
+    build: ./backend/rust
     environment:
       PORT: '8081'
 
   gateway:
-    build: ./go
+    build: ./backend/go
     ports:
-      - '8080:8080'
+      - '8000:8000'
     environment:
-      PORT: '8080'
+      PORT: '8000'
       DATABASE_URL: postgres://neon:neon@postgres:5432/neon
       REFEREE_URL: http://referee:8081
     depends_on:
