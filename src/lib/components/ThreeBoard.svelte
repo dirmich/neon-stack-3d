@@ -18,12 +18,15 @@
     board,
     active,
     status,
-    clearFlash = 0
+    clearFlash = 0,
+    interactive = true
   }: {
     board: Board;
     active: Piece;
     status: 'ready' | 'playing' | 'paused' | 'over';
     clearFlash?: number;
+    /** 배틀 모드 상대 보드 등 드래그/회전 비활성 */
+    interactive?: boolean;
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -240,20 +243,22 @@
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.16;
 
-    controls = new OrbitControls(camera, canvas);
-    controls.target.set(0, 9.2, 0);
-    controls.enableDamping = !reducedMotion;
-    controls.dampingFactor = 0.06;
-    controls.enablePan = false;
-    controls.enableZoom = false;
-    controls.minAzimuthAngle = -0.48;
-    controls.maxAzimuthAngle = 0.48;
-    controls.minPolarAngle = 1.2;
-    controls.maxPolarAngle = 1.86;
-    controls.addEventListener('change', () => {
-      needsRender = true;
-    });
-    controls.update();
+    if (interactive) {
+      controls = new OrbitControls(camera, canvas);
+      controls.target.set(0, 9.2, 0);
+      controls.enableDamping = !reducedMotion;
+      controls.dampingFactor = 0.06;
+      controls.enablePan = false;
+      controls.enableZoom = false;
+      controls.minAzimuthAngle = -0.48;
+      controls.maxAzimuthAngle = 0.48;
+      controls.minPolarAngle = 1.2;
+      controls.maxPolarAngle = 1.86;
+      controls.addEventListener('change', () => {
+        needsRender = true;
+      });
+      controls.update();
+    }
 
     scene.add(new THREE.HemisphereLight('#cce9ff', '#080912', 1.65));
     const keyLight = new THREE.DirectionalLight('#ffffff', 3.1);
@@ -331,13 +336,13 @@
       prevClearFlash = clearFlash;
     }
   });
-</script>
-
-<div bind:this={host} class="relative h-full min-h-0 w-full touch-none overflow-hidden rounded-[1.35rem]">
-  <canvas bind:this={canvas} class="block size-full cursor-grab active:cursor-grabbing" aria-label="3D 테트리스 게임 보드"></canvas>
-  <div class="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
-    <span class="rounded-full border border-white/[.08] bg-black/25 px-3 py-1 text-[10px] font-semibold tracking-[.16em] text-white/35 backdrop-blur-md">
-      DRAG TO VIEW
-    </span>
-  </div>
+</script>  <div bind:this={host} class="relative h-full min-h-0 w-full touch-none overflow-hidden rounded-[1.35rem]">
+  <canvas bind:this={canvas} class="block size-full {interactive ? 'cursor-grab active:cursor-grabbing' : ''}" aria-label="3D 테트리스 게임 보드"></canvas>
+  {#if interactive}
+    <div class="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
+      <span class="rounded-full border border-white/[.08] bg-black/25 px-3 py-1 text-[10px] font-semibold tracking-[.16em] text-white/35 backdrop-blur-md">
+        DRAG TO VIEW
+      </span>
+    </div>
+  {/if}
 </div>

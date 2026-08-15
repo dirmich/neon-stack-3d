@@ -14,11 +14,13 @@
     RotateCcw,
     RotateCw,
     Sparkles,
+    Swords,
     Trophy,
     Volume2,
     VolumeX,
     X
   } from 'lucide-svelte';
+  import BattleFlow from './lib/components/BattleFlow.svelte';
   import Button from './lib/components/ui/Button.svelte';
   import Card from './lib/components/ui/Card.svelte';
   import PiecePreview from './lib/components/PiecePreview.svelte';
@@ -48,6 +50,8 @@
   let highScore = $state(0);
   let soundEnabled = $state(true);
   let showHelp = $state(false);
+  // 배틀 모드: 단일 플레이와 별개 화면 (로비 → 방)
+  let mode = $state<'single' | 'battle'>('single');
   let audioContext: AudioContext | null = null;
   const music = new MusicPlayer();
   let raf = 0;
@@ -98,6 +102,7 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (mode !== 'single') return;
     const key = event.key;
     if (showHelp && key === 'Escape') {
       showHelp = false;
@@ -123,6 +128,7 @@
   }
 
   function handleKeyup(event: KeyboardEvent) {
+    if (mode !== 'single') return;
     const key = event.key;
     if (key === 'ArrowLeft' || key === 'a' || key === 'A') return engine.release('left');
     if (key === 'ArrowRight' || key === 'd' || key === 'D') return engine.release('right');
@@ -159,7 +165,8 @@
     const frameLoop = (now: number) => {
       const delta = Math.min(now - last, 100);
       last = now;
-      engine.update(delta);
+      // 배틀 모드에서는 단일 플레이 엔진을 돌리지 않는다 (서버가 권위 상태)
+      if (mode === 'single') engine.update(delta);
       raf = requestAnimationFrame(frameLoop);
     };
     raf = requestAnimationFrame(frameLoop);
@@ -217,13 +224,24 @@
       <Button variant="ghost" size="icon" aria-label={soundEnabled ? '소리 끄기' : '소리 켜기'} onclick={() => (soundEnabled = !soundEnabled)}>
         {#if soundEnabled}<Volume2 size={19} />{:else}<VolumeX size={19} />{/if}
       </Button>
-      <Button variant="outline" size="sm" onclick={() => engine.reset(true)}>
-        <RefreshCw size={14} /> <span class="hidden sm:inline">새 게임</span>
-      </Button>
+      {#if mode === 'single'}
+        <Button variant="outline" size="sm" onclick={() => engine.reset(true)}>
+          <RefreshCw size={14} /> <span class="hidden sm:inline">새 게임</span>
+        </Button>
+        <Button variant="default" size="sm" onclick={() => (mode = 'battle')}>
+          <Swords size={14} /> <span class="hidden sm:inline">배틀 모드</span>
+        </Button>
+      {:else}
+        <Button variant="outline" size="sm" onclick={() => (mode = 'single')}>
+          <RefreshCw size={14} /> <span class="hidden sm:inline">메인 메뉴</span>
+        </Button>
+      {/if}
     </div>
   </header>
 
-  <main class="relative z-10 mx-auto grid w-full max-w-[1320px] grid-cols-1 gap-4 px-4 pb-7 sm:px-6 lg:h-[calc(100vh-105px)] lg:min-h-[700px] lg:grid-cols-[230px_minmax(430px,650px)_230px] lg:items-stretch lg:justify-center lg:gap-5 lg:px-8 lg:pb-9">
+  <main class="relative z-10 mx-auto w-full max-w-[1320px] px-4 pb-7 sm:px-6 lg:px-8">
+    {#if mode === 'single'}
+    <div class="grid w-full grid-cols-1 gap-4 lg:h-[calc(100vh-105px)] lg:min-h-[700px] lg:grid-cols-[230px_minmax(430px,650px)_230px] lg:items-stretch lg:justify-center lg:gap-5 lg:pb-9">
     <aside class="order-2 grid grid-cols-2 gap-4 lg:order-1 lg:flex lg:flex-col">
       <Card class="col-span-1 p-5 lg:col-auto">
         <div class="mb-4 flex items-center gap-2 text-muted-foreground">
@@ -373,6 +391,10 @@
         </div>
       </Card>
     </aside>
+    </div>
+    {:else}
+      <BattleFlow playTone={playTone} onExit={() => (mode = 'single')} />
+    {/if}
   </main>
 
   {#if showHelp}
