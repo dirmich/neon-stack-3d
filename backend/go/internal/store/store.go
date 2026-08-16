@@ -289,29 +289,59 @@ func (s *Store) FinishPlayer(ctx context.Context, matchID, playerID string, scor
 }
 
 type LeaderboardRow struct {
-	Name string
-	Wins int
+	Rank    int    `json:"rank"`
+	Name    string `json:"name"`
+	Wins    int    `json:"wins"`
+	Losses  int    `json:"losses"`
+	Games   int    `json:"games"`
+	WinRate int    `json:"win_rate"`
 }
 
-func (s *Store) Leaderboard(ctx context.Context, limit int) ([]LeaderboardRow, error) {
+// Leaderboard — 승패 통계 전체를 계산해 상위 limit개와, 요청 사용자(이름 기준)의 순위를 함께 반환한다.
+// 사용자가 상위권에 없어도 자신의 전적이 항상 보이도록 my 항목을 별도로 돌려준다.
+func (s *Store) Leaderboard(ctx context.Context, limit int, myName string) ([]LeaderboardRow, *LeaderboardRow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT player_name, COUNT(*) FILTER (WHERE result = 'win') AS wins
+		SELECT player_name,
+		       COUNT(*) FILTER (WHERE result = 'win')  AS wins,
+		       COUNT(*) FILTER (WHERE result = 'loss') AS losses
 		FROM match_players
 		WHERE result IS NOT NULL
 		GROUP BY player_name
-		ORDER BY wins DESC, player_name ASC
-		LIMIT $1`, limit)
+		ORDER BY wins DESC, losses ASC, player_name ASC`)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer rows.Close()
-	out := []LeaderboardRow{}
+	all := []LeaderboardRow{}
 	for rows.Next() {
 		var r LeaderboardRow
-		if err := rows.Scan(&r.Name, &r.Wins); err != nil {
-			return nil, err
+		if err := rows.Scan(&r.Name, &r.Wins, &r.Losses); err != nil {
+			return nil, nil, err
 		}
-		out = append(out, r)
+		r.Games = r.Wins + r.Losses
+		if r.Games > 0 {
+			r.WinRate = int(float64(r.Wins) / float64(r.Games) * 100)
+		}
+		all = append(all, r)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+
+	for i := range all {
+		all[i].Rank = i + 1
+	}
+	out := all
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	var my *LeaderboardRow
+	for i := range all {
+		if all[i].Name == myName {
+			v := all[i]
+			my = &v
+			break
+		}
+	}
+	return out, my, nil
 }

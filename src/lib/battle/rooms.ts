@@ -1,7 +1,7 @@
 /** 방 리스트/생성/참가 API (게임 무관). 모든 요청은 로그인 토큰을 사용한다. */
 
 import { getToken } from './auth';
-import type { MatchCreateResponse, RoomRow } from './protocol';
+import type { LeaderboardResponse, MatchCreateResponse, RoomRow } from './protocol';
 
 function headers(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -41,4 +41,10 @@ export async function joinRoom(code: string): Promise<MatchCreateResponse> {
   });
   if (!res.ok) throw await errorFrom(res, '참가 실패');
   return (await res.json()) as MatchCreateResponse;
+}
+
+export async function fetchLeaderboard(limit = 10): Promise<LeaderboardResponse> {
+  const res = await fetch(`/api/leaderboard?limit=${limit}`, { headers: headers() });
+  if (!res.ok) throw await errorFrom(res, '리더보드를 불러오지 못했습니다');
+  return (await res.json()) as LeaderboardResponse;
 }

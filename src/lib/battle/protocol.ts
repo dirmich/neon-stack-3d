@@ -61,3 +61,19 @@ export interface RoomRow {
   created_at: string;
   is_mine: boolean;
 }
+
+/** 리더보드 항목 (승패 통계) */
+export interface LeaderboardEntry {
+  rank: number;
+  name: string;
+  wins: number;
+  losses: number;
+  games: number;
+  win_rate: number;
+}
+
+/** 리더보드 응답 — 상위 목록 + 내 전적 (상위권 밖이어도 항상 포함) */
+export interface LeaderboardResponse {
+  rows: LeaderboardEntry[];
+  my: LeaderboardEntry | null;
+}

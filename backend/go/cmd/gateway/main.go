@@ -245,12 +245,19 @@ func main() {
 
 	// ---------- 리더보드 ----------
 	mux.HandleFunc("GET /api/leaderboard", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
-		rows, err := st.Leaderboard(r.Context(), 10)
+		limit := 10
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				limit = min(n, 50)
+			}
+		}
+		u := auth.UserFrom(r.Context())
+		rows, my, err := st.Leaderboard(r.Context(), limit, u.Name)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
 			return
 		}
-		writeJSON(w, http.StatusOK, rows)
+		writeJSON(w, http.StatusOK, map[string]any{"rows": rows, "my": my})
 	}))
 
 	// ---------- 게임 WebSocket (token은 query 파라미터) ----------

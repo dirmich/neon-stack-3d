@@ -1,11 +1,11 @@
 <script lang="ts" generics="S">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowLeft, Copy, LoaderCircle, Plus, RefreshCw, Swords, Users, X } from 'lucide-svelte';
+  import { ArrowLeft, Copy, Crown, LoaderCircle, Plus, RefreshCw, Swords, Trophy, Users, X } from 'lucide-svelte';
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
   import { BattleClient } from './client';
-  import type { MatchCreateResponse, MatchInfo, RoomRow } from './protocol';
-  import { createRoom, joinRoom, listRooms } from './rooms';
+  import type { LeaderboardEntry, LeaderboardResponse, MatchCreateResponse, MatchInfo, RoomRow } from './protocol';
+  import { createRoom, fetchLeaderboard, joinRoom, listRooms } from './rooms';
   import { getToken } from './auth';
 
   /**
@@ -23,6 +23,7 @@
   } = $props();
 
   let rooms = $state<RoomRow[]>([]);
+  let leaderboard = $state<LeaderboardResponse>({ rows: [], my: null });
   let loading = $state(true);
   let error = $state<string | null>(null);
   let joinCode = $state('');
@@ -37,13 +38,21 @@
 
   async function refresh() {
     try {
-      rooms = await listRooms(game);
+      const [roomRows, board] = await Promise.all([listRooms(game), fetchLeaderboard()]);
+      rooms = roomRows;
+      leaderboard = board;
       error = null;
     } catch (e) {
       if (!waiting) error = e instanceof Error ? e.message : '방 목록을 불러오지 못했습니다';
     } finally {
       loading = false;
     }
+  }
+
+  /** 내 행이 상위 목록에 없으면 따로 고정 표시한다 */
+  function myRow(): LeaderboardEntry | null {
+    if (!leaderboard.my) return null;
+    return leaderboard.rows.some((r) => r.name === leaderboard.my!.name) ? null : leaderboard.my;
   }
 
   client.onClose = () => {
@@ -266,6 +275,96 @@
               </div>
             </div>
           {/each}
+        </div>
+      {/if}
+    </Card>
+
+    <!-- 리더보드 (승패 통계) -->
+    <Card class="mt-5 p-5">
+      <div class="mb-4 flex items-center justify-between">
+        <div class="flex items-center gap-2 text-muted-foreground">
+          <Trophy size={15} />
+          <span class="text-[10px] font-bold tracking-[.2em]">리더보드</span>
+        </div>
+        {#if leaderboard.rows.length > 0}
+          <span class="text-[10px] text-white/25">승률 기준 · 전체 배틀</span>
+        {/if}
+      </div>
+
+      {#if leaderboard.rows.length === 0}
+        <div class="rounded-xl border border-dashed border-white/10 bg-black/10 px-4 py-8 text-center">
+          <p class="text-sm text-muted-foreground">{loading ? '불러오는 중...' : '아직 기록된 대전이 없습니다.'}</p>
+          {#if !loading}
+            <p class="mt-1 text-xs text-white/25">배틀을 완료하면 승패 통계가 여기에 쌓입니다.</p>
+          {/if}
+        </div>
+      {:else}
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm">
+            <thead>
+              <tr class="text-[10px] uppercase tracking-[.18em] text-white/30">
+                <th class="pb-2 pr-2 font-bold">순위</th>
+                <th class="pb-2 pr-2 font-bold">플레이어</th>
+                <th class="pb-2 pr-2 text-right font-bold">승</th>
+                <th class="pb-2 pr-2 text-right font-bold">패</th>
+                <th class="pb-2 text-right font-bold">승률</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each leaderboard.rows as entry, i (entry.name)}
+                {@const mine = entry.name === leaderboard.my?.name}
+                <tr class="border-t border-white/[.05] {mine ? 'bg-cyan-400/[.06]' : ''}">
+                  <td class="py-2.5 pr-2">
+                    <span class="flex size-6 items-center justify-center rounded-full text-[11px] font-black {i === 0 ? 'bg-amber-400/15 text-amber-300' : i === 1 ? 'bg-white/10 text-white/70' : i === 2 ? 'bg-orange-400/10 text-orange-300' : 'bg-white/[.04] text-white/35'}">
+                      {#if i === 0}<Crown size={12} />{:else}{entry.rank}{/if}
+                    </span>
+                  </td>
+                  <td class="py-2.5 pr-2">
+                    <span class="flex items-center gap-2 font-bold {mine ? 'text-cyan-300' : 'text-white'}">
+                      {entry.name}
+                      {#if mine}
+                        <span class="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-1.5 py-0.5 text-[9px] font-bold tracking-[.1em] text-cyan-300">나</span>
+                      {/if}
+                    </span>
+                  </td>
+                  <td class="py-2.5 pr-2 text-right font-mono font-bold text-emerald-300">{entry.wins}</td>
+                  <td class="py-2.5 pr-2 text-right font-mono text-rose-300/80">{entry.losses}</td>
+                  <td class="py-2.5 text-right">
+                    <span class="inline-flex items-center gap-1.5">
+                      <span class="h-1.5 w-12 overflow-hidden rounded-full bg-white/10">
+                        <span class="block h-full rounded-full bg-primary" style="width: {entry.win_rate}%"></span>
+                      </span>
+                      <span class="w-9 text-right font-mono text-xs text-white/60">{entry.win_rate}%</span>
+                    </span>
+                  </td>
+                </tr>
+              {/each}
+              {#if myRow()}
+                {@const entry = myRow()!}
+                <tr class="border-t-2 border-dashed border-cyan-300/20 bg-cyan-400/[.06]">
+                  <td class="py-2.5 pr-2">
+                    <span class="flex size-6 items-center justify-center rounded-full bg-white/[.06] text-[11px] font-black text-white/60">{entry.rank}</span>
+                  </td>
+                  <td class="py-2.5 pr-2">
+                    <span class="flex items-center gap-2 font-bold text-cyan-300">
+                      {entry.name}
+                      <span class="rounded-full border border-cyan-300/25 bg-cyan-400/10 px-1.5 py-0.5 text-[9px] font-bold tracking-[.1em] text-cyan-300">나</span>
+                    </span>
+                  </td>
+                  <td class="py-2.5 pr-2 text-right font-mono font-bold text-emerald-300">{entry.wins}</td>
+                  <td class="py-2.5 pr-2 text-right font-mono text-rose-300/80">{entry.losses}</td>
+                  <td class="py-2.5 text-right">
+                    <span class="inline-flex items-center gap-1.5">
+                      <span class="h-1.5 w-12 overflow-hidden rounded-full bg-white/10">
+                        <span class="block h-full rounded-full bg-primary" style="width: {entry.win_rate}%"></span>
+                      </span>
+                      <span class="w-9 text-right font-mono text-xs text-white/60">{entry.win_rate}%</span>
+                    </span>
+                  </td>
+                </tr>
+              {/if}
+            </tbody>
+          </table>
         </div>
       {/if}
     </Card>
