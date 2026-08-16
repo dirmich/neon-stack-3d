@@ -251,7 +251,8 @@
           </div>
         </div>
         <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
-          <ThreeBoard board={opponent.board} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive={false} />
+          <!-- 상대 보드도 드래그로 회전 가능 — 각 보드가 독립된 카메라/OrbitControls를 가져 각도가 독립적으로 유지된다 -->
+          <ThreeBoard board={opponent.board} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive showHint={false} />
           {#if opponent.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-4 py-1.5 text-xs font-bold tracking-[.2em] text-rose-300">TOP OUT</span>

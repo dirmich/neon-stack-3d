@@ -19,14 +19,17 @@
     active,
     status,
     clearFlash = 0,
-    interactive = true
+    interactive = true,
+    showHint = true
   }: {
     board: Board;
     active: Piece;
     status: 'ready' | 'playing' | 'paused' | 'over';
     clearFlash?: number;
-    /** 배틀 모드 상대 보드 등 드래그/회전 비활성 */
+    /** 드래그/회전 활성화 (상대 보드도 독립 각도로 회전 가능) */
     interactive?: boolean;
+    /** "DRAG TO VIEW" 힌트 배지 표시 여부 (기본: interactive와 동일) */
+    showHint?: boolean;
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -363,7 +366,7 @@
   });
 </script>  <div bind:this={host} class="relative h-full min-h-0 w-full touch-none overflow-hidden rounded-[1.35rem]">
   <canvas bind:this={canvas} class="block size-full {interactive ? 'cursor-grab active:cursor-grabbing' : ''}" aria-label="3D 테트리스 게임 보드"></canvas>
-  {#if interactive}
+  {#if interactive && showHint}
     <div class="pointer-events-none absolute inset-x-0 top-4 flex justify-center">
       <span class="rounded-full border border-white/[.08] bg-black/25 px-3 py-1 text-[10px] font-semibold tracking-[.16em] text-white/35 backdrop-blur-md">
         DRAG TO VIEW
