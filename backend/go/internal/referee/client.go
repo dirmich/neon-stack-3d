@@ -24,11 +24,13 @@ func New(base string) *Client {
 }
 
 type PieceState struct {
-	T     string    `json:"t"`
-	X     int       `json:"x"`
-	Y     int       `json:"y"`
-	Rot   uint8     `json:"rot"`
-	Shape [][]uint8 `json:"shape"`
+	T     string  `json:"t"`
+	X     int     `json:"x"`
+	Y     int     `json:"y"`
+	Rot   uint8   `json:"rot"`
+	// uint8는 []byte로 인식되어 JSON 인코더가 base64로 인코딩한다(→ 프론트 shape가 깨짐).
+	// 숫자 배열로 직렬화되도록 int를 쓴다.
+	Shape [][]int `json:"shape"`
 }
 
 type PlayerState struct {
