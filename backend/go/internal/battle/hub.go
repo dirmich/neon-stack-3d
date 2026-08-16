@@ -27,10 +27,11 @@ type Hub struct {
 	rooms   map[string]*Room
 	referee Referee
 	store   *store.Store
+	bots    BotProvider
 }
 
-func New(ref Referee, st *store.Store) *Hub {
-	return &Hub{rooms: map[string]*Room{}, referee: ref, store: st}
+func New(ref Referee, st *store.Store, bots BotProvider) *Hub {
+	return &Hub{rooms: map[string]*Room{}, referee: ref, store: st, bots: bots}
 }
 
 type Client struct {
@@ -47,6 +48,8 @@ type Room struct {
 	mu      sync.Mutex
 	clients map[string]*Client
 	order   []string
+	botID   string
+	bot     Bot
 	started bool
 	over    bool
 	stopped bool
@@ -106,7 +109,16 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			matchID: matchID,
 			game:    m.Game,
 			clients: map[string]*Client{},
+			order:   []string{playerID},
 			stopCh:  make(chan struct{}),
+		}
+		// CPU 봇 상대(솔로)면 봇을 두 번째 플레이어로 등록 — 봇은 WS 없이 서버에서 직접 구동된다.
+		if botID, _, ok, err := h.store.BotPlayer(context.Background(), matchID); err == nil && ok {
+			room.botID = botID
+			room.order = append(room.order, botID)
+			if h.bots != nil {
+				room.bot = h.bots(m.Game)
+			}
 		}
 		h.rooms[matchID] = room
 	}
@@ -126,12 +138,17 @@ func (r *Room) addClient(playerID string, conn *websocket.Conn) {
 		r.order = append(r.order, playerID)
 	}
 	started := r.started
+	// 봇이 있으면(솔로) 사람 한 명만 들어와도 시작, 없으면 2명 모두 필요.
+	need := len(r.order) >= 2
+	if !started && r.botID != "" {
+		need = len(r.clients) >= 1
+	}
 	r.mu.Unlock()
 
 	go c.writePump()
 	go c.readPump()
 
-	if !started && len(r.order) >= 2 {
+	if !started && need {
 		r.start()
 	}
 }
@@ -209,7 +226,26 @@ func (r *Room) tickLoop() {
 				continue
 			}
 			r.broadcastUpdate(up)
+			r.driveBot(up)
 		}
+	}
+}
+
+// driveBot — 봇이 있으면 최신 상태를 보고 액션을 하나씩 보낸다 (틱당 최대 1개).
+func (r *Room) driveBot(up *Update) {
+	if r.bot == nil || r.botID == "" {
+		return
+	}
+	states, err := SplitStates(up.States)
+	if err != nil {
+		return
+	}
+	bs, ok := states[r.botID]
+	if !ok {
+		return
+	}
+	if act := r.bot.Action(bs); act != nil {
+		r.handleAction(r.botID, *act)
 	}
 }
 

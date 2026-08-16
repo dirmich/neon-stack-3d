@@ -50,6 +50,7 @@ export interface MatchCreateResponse {
   player_id: string;
   player_name: string;
   game: string;
+  solo?: boolean;
 }
 
 /** 방 리스트 항목 */

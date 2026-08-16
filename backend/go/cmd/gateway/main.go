@@ -82,7 +82,14 @@ func main() {
 
 	authSvc := auth.New(st, googleClientID)
 	ref := referee.New(refereeURL)
-	h := battle.New(ref, st)
+	// 게임별 CPU 봇 등록 — 새 게임은 여기에 봇 드라이버를 추가한다.
+	bots := battle.BotProvider(func(game string) battle.Bot {
+		if game == "tetris" {
+			return referee.NewTetrisBot()
+		}
+		return nil
+	})
+	h := battle.New(ref, st, bots)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
@@ -221,6 +228,29 @@ func main() {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{
 			"match_id": m.ID, "code": m.Code, "player_id": u.ID, "player_name": u.Name, "game": m.Game,
+		})
+	}))
+
+	// ---------- CPU 봇 상대 (솔로 연습) ----------
+	mux.HandleFunc("POST /api/matches/solo", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.UserFrom(r.Context())
+		var body struct {
+			Game string `json:"game"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		game := strings.TrimSpace(body.Game)
+		if game == "" {
+			game = "tetris"
+		}
+		matchID, code := randomHex(8), joinCode()
+		if err := st.CreateSoloMatch(r.Context(), matchID, code, game, u.ID, u.Name); err != nil {
+			log.Printf("create solo match: %v", err)
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]string{
+			"match_id": matchID, "code": code, "player_id": u.ID, "player_name": u.Name,
+			"game": game, "solo": "true",
 		})
 	}))
 

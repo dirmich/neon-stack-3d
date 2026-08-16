@@ -1,11 +1,11 @@
 <script lang="ts" generics="S">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowLeft, Copy, Crown, LoaderCircle, Plus, RefreshCw, Swords, Trophy, Users, X } from 'lucide-svelte';
+  import { ArrowLeft, Bot, Copy, Crown, LoaderCircle, Plus, RefreshCw, Swords, Trophy, Users, X } from 'lucide-svelte';
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
   import { BattleClient } from './client';
   import type { LeaderboardEntry, LeaderboardResponse, MatchCreateResponse, MatchInfo, RoomRow } from './protocol';
-  import { createRoom, fetchLeaderboard, joinRoom, listRooms } from './rooms';
+  import { createRoom, createSoloRoom, fetchLeaderboard, joinRoom, listRooms } from './rooms';
   import { getToken } from './auth';
 
   /**
@@ -101,6 +101,16 @@
     }
   }
 
+  async function handleSolo() {
+    error = null;
+    try {
+      const res = await createSoloRoom(game);
+      beginWaiting(res);
+    } catch (e) {
+      error = e instanceof Error ? e.message : '솔로 매치 생성 실패';
+    }
+  }
+
   async function handleJoin(code: string) {
     error = null;
     if (!code.trim()) {
@@ -180,18 +190,24 @@
         <LoaderCircle size={26} class="animate-spin text-primary" />
       </div>
       <p class="text-[10px] font-bold tracking-[.3em] text-primary">WAITING FOR OPPONENT</p>
-      <h3 class="mt-2 text-2xl font-black tracking-[-.04em] text-white">상대방을 기다리는 중</h3>
-      <p class="mt-4 text-sm text-muted-foreground">친구에게 아래 코드를 알려주거나, 방 리스트에서 참가하게 하세요.</p>
-      <button
-        class="mx-auto mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-8 py-4 font-mono text-4xl font-black tracking-[.3em] text-primary transition hover:border-primary/40 hover:bg-primary/5"
-        onclick={copyCode}
-        aria-label="코드 복사"
-      >
-        {room.code}
-        <Copy size={20} class="text-white/30" />
-      </button>
-      {#if copied}
-        <p class="mt-2 text-xs text-cyan-300">복사되었습니다!</p>
+      <h3 class="mt-2 text-2xl font-black tracking-[-.04em] text-white">{room.solo ? 'CPU 봇과 연결 중' : '상대방을 기다리는 중'}</h3>
+      {#if room.solo}
+        <p class="mt-4 text-sm text-muted-foreground">곧 배틀이 시작됩니다.</p>
+      {:else}
+        <p class="mt-4 text-sm text-muted-foreground">친구에게 아래 코드를 알려주거나, 방 리스트에서 참가하게 하세요.</p>
+      {/if}
+      {#if !room.solo}
+        <button
+          class="mx-auto mt-4 flex items-center gap-3 rounded-2xl border border-white/10 bg-black/30 px-8 py-4 font-mono text-4xl font-black tracking-[.3em] text-primary transition hover:border-primary/40 hover:bg-primary/5"
+          onclick={copyCode}
+          aria-label="코드 복사"
+        >
+          {room.code}
+          <Copy size={20} class="text-white/30" />
+        </button>
+        {#if copied}
+          <p class="mt-2 text-xs text-cyan-300">복사되었습니다!</p>
+        {/if}
       {/if}
       {#if error}
         <p class="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-2.5 text-center text-sm text-rose-300">{error}</p>
@@ -227,6 +243,17 @@
         <Button size="lg" variant="outline" class="mt-5 w-full" onclick={() => handleJoin(joinCode)}><Users size={16} /> 참가</Button>
       </Card>
     </div>
+
+    <Card class="mt-4 border-primary/20 bg-primary/[.03] p-6">
+      <div class="mb-3 flex items-center gap-2 text-primary">
+        <Bot size={15} />
+        <span class="text-[10px] font-bold tracking-[.2em]">혼자 연습</span>
+      </div>
+      <p class="text-sm leading-6 text-muted-foreground">상대 없이 CPU 봇과 바로 대전해 연습하세요. 연습 결과는 리더보드에 반영되지 않습니다.</p>
+      <Button size="lg" variant="outline" class="mt-4 w-full border-primary/30 text-primary hover:bg-primary/10" onclick={handleSolo}>
+        <Bot size={16} /> CPU 봇과 연습
+      </Button>
+    </Card>
 
     {#if error}
       <p class="mt-5 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-2.5 text-center text-sm text-rose-300">{error}</p>

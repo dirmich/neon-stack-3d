@@ -3,9 +3,11 @@ package store
 import (
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,6 +24,7 @@ type MatchRow struct {
 	Game       string
 	Status     string
 	WinnerID   *string
+	Solo       bool
 	CreatedAt  time.Time
 	FinishedAt *time.Time
 }
@@ -76,6 +79,46 @@ func (s *Store) CreateMatch(ctx context.Context, matchID, code, game, playerID, 
 	return tx.Commit(ctx)
 }
 
+// CreateSoloMatch — CPU 봇을 두 번째 플레이어로 넣은 솔로 매치를 만든다.
+// 봇 player_id는 "bot:"+matchID로, 봇 이름은 "CPU 봇"으로 고정.
+func (s *Store) CreateSoloMatch(ctx context.Context, matchID, code, game, hostID, hostName string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO matches (id, code, game, solo) VALUES ($1, $2, $3, true)`, matchID, code, game); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO match_players (match_id, player_id, player_name) VALUES ($1, $2, $3)`,
+		matchID, hostID, hostName); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO match_players (match_id, player_id, player_name, is_bot) VALUES ($1, $2, $3, true)`,
+		matchID, "bot:"+matchID, "CPU 봇"); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// BotPlayer — 매치의 봇 플레이어 id/이름을 돌려준다 (없으면 ok=false).
+func (s *Store) BotPlayer(ctx context.Context, matchID string) (string, string, bool, error) {
+	var id, name string
+	err := s.pool.QueryRow(ctx,
+		`SELECT player_id, player_name FROM match_players WHERE match_id = $1 AND is_bot LIMIT 1`,
+		matchID).Scan(&id, &name)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", "", false, nil
+		}
+		return "", "", false, err
+	}
+	return id, name, true, nil
+}
+
 // ListRooms returns joinable (waiting) rooms for a game, newest first.
 func (s *Store) ListRooms(ctx context.Context, game, userID string, limit int) ([]RoomRow, error) {
 	rows, err := s.pool.Query(ctx, `
@@ -91,7 +134,7 @@ func (s *Store) ListRooms(ctx context.Context, game, userID string, limit int) (
 		JOIN LATERAL (
 			SELECT count(*) AS cnt FROM match_players WHERE match_id = m.id
 		) pc ON true
-		WHERE m.status = 'created' AND m.game = $1
+		WHERE m.status = 'created' AND m.game = $1 AND NOT m.solo
 		ORDER BY m.created_at DESC
 		LIMIT $3`, game, userID, limit)
 	if err != nil {
@@ -115,15 +158,18 @@ func (s *Store) JoinMatch(ctx context.Context, code, playerID, name string) (*Ma
 	var m MatchRow
 	var count int
 	err := s.pool.QueryRow(ctx, `
-		SELECT m.id, m.code, m.game, m.status, m.winner_id, m.created_at, m.finished_at,
+		SELECT m.id, m.code, m.game, m.status, m.winner_id, m.solo, m.created_at, m.finished_at,
 		       (SELECT count(*) FROM match_players mp WHERE mp.match_id = m.id)
 		FROM matches m WHERE m.code = $1`, code).
-		Scan(&m.ID, &m.Code, &m.Game, &m.Status, &m.WinnerID, &m.CreatedAt, &m.FinishedAt, &count)
+		Scan(&m.ID, &m.Code, &m.Game, &m.Status, &m.WinnerID, &m.Solo, &m.CreatedAt, &m.FinishedAt, &count)
 	if err != nil {
 		return nil, fmt.Errorf("방 코드 %q를 찾을 수 없습니다", code)
 	}
 	if m.Status != "created" {
 		return nil, fmt.Errorf("이미 시작되었거나 종료된 방입니다 (%s)", m.Status)
+	}
+	if m.Solo {
+		return nil, fmt.Errorf("CPU 봇 연습 방에는 참가할 수 없습니다")
 	}
 	var already int
 	if err := s.pool.QueryRow(ctx,
@@ -301,13 +347,14 @@ type LeaderboardRow struct {
 // 사용자가 상위권에 없어도 자신의 전적이 항상 보이도록 my 항목을 별도로 돌려준다.
 func (s *Store) Leaderboard(ctx context.Context, limit int, myName string) ([]LeaderboardRow, *LeaderboardRow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT player_name,
-		       COUNT(*) FILTER (WHERE result = 'win')  AS wins,
-		       COUNT(*) FILTER (WHERE result = 'loss') AS losses
-		FROM match_players
-		WHERE result IS NOT NULL
-		GROUP BY player_name
-		ORDER BY wins DESC, losses ASC, player_name ASC`)
+		SELECT mp.player_name,
+		       COUNT(*) FILTER (WHERE mp.result = 'win')  AS wins,
+		       COUNT(*) FILTER (WHERE mp.result = 'loss') AS losses
+		FROM match_players mp
+		JOIN matches m ON m.id = mp.match_id
+		WHERE mp.result IS NOT NULL AND NOT m.solo
+		GROUP BY mp.player_name
+		ORDER BY wins DESC, losses ASC, mp.player_name ASC`)
 	if err != nil {
 		return nil, nil, err
 	}

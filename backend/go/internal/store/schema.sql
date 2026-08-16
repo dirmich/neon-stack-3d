@@ -46,3 +46,7 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT;
 ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL;
+
+-- CPU 봇 상대 (v1.3.4): 솔로 매치 = 두 번째 플레이어가 서버 봇
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS solo BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT false;
