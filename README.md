@@ -53,11 +53,25 @@ npm run preview
 
 ### 로그인 → 방 리스트 → 대전
 
-첫 화면은 로그인/회원가입 화면이다. 로그인 후 **방 리스트**가 기본 화면으로 나타난다.
+첫 화면은 **구글 로그인(Google SSO)** 화면이다. 로그인 후 **방 리스트**가 기본 화면으로 나타난다.
 
-1. 이름/비밀번호로 가입 또는 로그인 (토큰은 브라우저에 유지)
+1. 구글 계정으로 로그인 (계정 이름이 배틀 닉네임, 토큰은 브라우저에 유지)
 2. 방 리스트에서 **방 만들기** 또는 **참가** (4자리 코드로도 참가 가능)
 3. 두 명이 모이면 배틀 시작 — 줄을 지워 상대에게 가비지를 보내 승리
+
+#### Google SSO 설정
+
+1. Google Cloud Console → APIs & Services → Credentials → **OAuth client ID (Web application)** 생성
+2. Authorized JavaScript origins에 등록: `http://localhost:3000`, `http://localhost:5173`
+3. 루트에 `.env` 파일을 만들고 client id를 넣는다 (형식은 `.env.example` 참고):
+   ```
+   GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
+   ```
+4. `docker compose up -d --build gateway` 재시작
+
+설정 전에는 로그인 화면에 안내가 표시된다. 서버는 Google의 `tokeninfo` 엔드포인트로 ID 토큰의
+서명·만료·aud를 검증하고, `sub`/이메일 기준으로 사용자를 upsert한다.
+(개발/테스트용 비밀번호 API `/api/auth/register`·`/api/auth/login`도 유지됨)
 
 ### 배틀 모듈 (게임 재사용 가능)
 

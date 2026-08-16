@@ -1,34 +1,80 @@
 <script lang="ts">
-  import { LoaderCircle, LogIn, UserPlus } from 'lucide-svelte';
+  import { onMount } from 'svelte';
+  import { LoaderCircle } from 'lucide-svelte';
   import Button from './ui/Button.svelte';
   import Card from './ui/Card.svelte';
-  import { login, register, type AuthUser } from '../battle/auth';
+  import { getGoogleConfig, googleLogin, type AuthUser, type GoogleConfig } from '../battle/auth';
 
   let { onLogin }: { onLogin: (user: AuthUser) => void } = $props();
 
-  let mode = $state<'login' | 'register'>('login');
-  let name = $state('');
-  let password = $state('');
+  let config = $state<GoogleConfig | null>(null);
   let error = $state<string | null>(null);
   let busy = $state(false);
+  let rendered = false;
+  let gsiReady = $state(false);
 
-  async function submit() {
-    error = null;
-    if (!name.trim() || !password) {
-      error = '이름과 비밀번호를 입력해 주세요.';
-      return;
-    }
-    busy = true;
+  function loadGsiScript(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (window.google?.accounts?.id) {
+        resolve();
+        return;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => resolve();
+      script.onerror = () => reject(new Error('Google 로그인 스크립트를 불러오지 못했습니다'));
+      document.head.appendChild(script);
+    });
+  }
+
+  onMount(async () => {
     try {
-      const res =
-        mode === 'login' ? await login(name.trim(), password) : await register(name.trim(), password);
-      onLogin(res.user);
+      config = await getGoogleConfig();
+    } catch {
+      config = { client_id: '', enabled: false };
+    }
+    if (!config?.enabled || !config.client_id) return;
+    try {
+      await loadGsiScript();
+      window.google?.accounts?.id.initialize({
+        client_id: config.client_id,
+        callback: (resp) => void handleCredential(resp.credential)
+      });
+      gsiReady = true;
     } catch (e) {
-      error = e instanceof Error ? e.message : '요청에 실패했습니다';
-    } finally {
+      error = e instanceof Error ? e.message : 'Google 로그인 초기화 실패';
+    }
+  });
+
+  async function handleCredential(credential: string) {
+    if (busy) return;
+    busy = true;
+    error = null;
+    try {
+      const { user } = await googleLogin(credential);
+      onLogin(user);
+    } catch (e) {
+      error = e instanceof Error ? e.message : '구글 로그인 실패';
       busy = false;
     }
   }
+
+  /** GIS 버튼 렌더는 스크립트 로드 + DOM 준비 후에 — 구글 버튼 컨테이너에 그린다 */
+  let googleBtn = $state<HTMLDivElement | undefined>();
+  $effect(() => {
+    if (config?.enabled && gsiReady && !rendered && googleBtn && window.google?.accounts?.id) {
+      rendered = true;
+      window.google.accounts.id.renderButton(googleBtn, {
+        theme: 'filled_black',
+        size: 'large',
+        shape: 'pill',
+        width: 280,
+        text: 'continue_with'
+      });
+    }
+  });
 </script>
 
 <div class="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
@@ -42,64 +88,39 @@
       </div>
       <p class="mt-5 text-[10px] font-bold tracking-[.28em] text-primary">3D ARCADE</p>
       <h1 class="mt-1 text-2xl font-black tracking-[-.04em] text-white">NEON STACK</h1>
-      <p class="mt-3 text-sm text-muted-foreground">배틀을 시작하려면 로그인하세요.</p>
+      <p class="mt-3 text-sm text-muted-foreground">구글 계정으로 로그인하고 배틀을 시작하세요.</p>
     </div>
 
-    <div class="mt-7 flex rounded-xl border border-white/10 bg-black/20 p-1">
-      <button
-        class={`flex-1 rounded-lg py-2 text-xs font-bold transition ${mode === 'login' ? 'bg-white/[.08] text-white' : 'text-muted-foreground hover:text-white/70'}`}
-        onclick={() => { mode = 'login'; error = null; }}
-      >
-        로그인
-      </button>
-      <button
-        class={`flex-1 rounded-lg py-2 text-xs font-bold transition ${mode === 'register' ? 'bg-white/[.08] text-white' : 'text-muted-foreground hover:text-white/70'}`}
-        onclick={() => { mode = 'register'; error = null; }}
-      >
-        회원가입
-      </button>
-    </div>
-
-    <div class="mt-5 space-y-3">
-      <div>
-        <label for="login-name" class="mb-1.5 block text-[10px] font-bold tracking-[.18em] text-muted-foreground">이름</label>
-        <input
-          id="login-name"
-          bind:value={name}
-          class="w-full rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-primary/50"
-          placeholder="닉네임 (2~16자)"
-          maxlength="16"
-          onkeydown={(e) => e.key === 'Enter' && submit()}
-        />
-      </div>
-      <div>
-        <label for="login-password" class="mb-1.5 block text-[10px] font-bold tracking-[.18em] text-muted-foreground">비밀번호</label>
-        <input
-          id="login-password"
-          bind:value={password}
-          type="password"
-          class="w-full rounded-xl border border-white/10 bg-black/25 px-3.5 py-2.5 text-sm text-white outline-none transition focus:border-primary/50"
-          placeholder="4자 이상"
-          onkeydown={(e) => e.key === 'Enter' && submit()}
-        />
-      </div>
-    </div>
-
-    {#if error}
-      <p class="mt-4 rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-2.5 text-center text-sm text-rose-300">{error}</p>
-    {/if}
-
-    <Button size="lg" class="mt-6 w-full" disabled={busy} onclick={submit}>
-      {#if busy}
-        <LoaderCircle size={16} class="animate-spin" />
-      {:else if mode === 'login'}
-        <LogIn size={16} />
+    <div class="mt-8 flex flex-col items-center gap-4">
+      {#if config === null}
+        <div class="flex h-12 items-center gap-2 text-sm text-muted-foreground">
+          <LoaderCircle size={18} class="animate-spin text-primary" /> 설정 확인 중...
+        </div>
+      {:else if config.enabled}
+        {#if busy}
+          <div class="flex h-12 items-center gap-2 text-sm text-muted-foreground">
+            <LoaderCircle size={18} class="animate-spin text-primary" /> 로그인 처리 중...
+          </div>
+        {:else}
+          <div bind:this={googleBtn} class="flex min-h-12 items-center justify-center"></div>
+        {/if}
       {:else}
-        <UserPlus size={16} />
+        <div class="w-full rounded-2xl border border-amber-300/20 bg-amber-400/[.06] px-5 py-4 text-center">
+          <p class="text-xs font-bold tracking-[.14em] text-amber-300">GOOGLE SSO NOT CONFIGURED</p>
+          <p class="mt-2 text-xs leading-5 text-muted-foreground">
+            서버에 <code class="rounded bg-black/30 px-1.5 py-0.5 font-mono text-[10px] text-amber-200">GOOGLE_CLIENT_ID</code>를
+            설정하면 구글 로그인이 활성화됩니다.
+          </p>
+        </div>
       {/if}
-      {mode === 'login' ? '로그인' : '가입하고 시작'}
-    </Button>
 
-    <p class="mt-5 text-center text-[10px] leading-4 text-white/25">로그인 상태는 이 브라우저에 유지됩니다.<br />배틀 승패가 기록되고 리더보드에 반영됩니다.</p>
+      {#if error}
+        <p class="w-full rounded-xl border border-rose-400/20 bg-rose-500/10 px-4 py-2.5 text-center text-sm text-rose-300">{error}</p>
+      {/if}
+    </div>
+
+    <p class="mt-6 text-center text-[10px] leading-4 text-white/25">
+      구글 계정 이름이 배틀 닉네임으로 사용됩니다.<br />배틀 승패가 기록되고 리더보드에 반영됩니다.
+    </p>
   </Card>
 </div>

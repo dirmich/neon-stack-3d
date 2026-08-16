@@ -54,6 +54,7 @@ func main() {
 	if dbURL == "" {
 		dbURL = "postgres://neon:neon@localhost:5432/neon"
 	}
+	googleClientID := os.Getenv("GOOGLE_CLIENT_ID")
 	refereeURL := os.Getenv("REFEREE_URL")
 	if refereeURL == "" {
 		refereeURL = "http://localhost:8081"
@@ -79,7 +80,7 @@ func main() {
 	defer st.Close()
 	log.Printf("postgres 연결 완료")
 
-	authSvc := auth.New(st)
+	authSvc := auth.New(st, googleClientID)
 	ref := referee.New(refereeURL)
 	h := battle.New(ref, st)
 
@@ -132,6 +133,34 @@ func main() {
 		u := auth.UserFrom(r.Context())
 		writeJSON(w, http.StatusOK, map[string]string{"id": u.ID, "name": u.Name})
 	}))
+
+	// ---------- Google SSO ----------
+	// 클라이언트에 Google OAuth client id 제공 (설정 안 됐으면 enabled=false)
+	mux.HandleFunc("GET /api/auth/google/config", func(w http.ResponseWriter, r *http.Request) {
+		cid := authSvc.GoogleClientID()
+		writeJSON(w, http.StatusOK, map[string]any{"client_id": cid, "enabled": cid != ""})
+	})
+
+	// Google Identity Services가 발급한 ID 토큰(credential)을 검증하고 로그인/가입
+	mux.HandleFunc("POST /api/auth/google", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Credential string `json:"credential"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+			return
+		}
+		u, token, err := authSvc.GoogleLogin(r.Context(), strings.TrimSpace(body.Credential))
+		if err != nil {
+			status := http.StatusUnauthorized
+			if err == auth.ErrGoogleNotConfigured {
+				status = http.StatusServiceUnavailable
+			}
+			writeJSON(w, status, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": map[string]string{"id": u.ID, "name": u.Name}})
+	})
 
 	// ---------- 방 리스트 ----------
 	mux.HandleFunc("GET /api/rooms", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {

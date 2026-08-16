@@ -27,9 +27,11 @@ type MatchRow struct {
 }
 
 type User struct {
-	ID       string
-	Name     string
-	Password string
+	ID         string
+	Name       string
+	Password   string
+	Email      string
+	GoogleSub  string
 }
 
 type RoomRow struct {
@@ -165,12 +167,58 @@ func (s *Store) CreateUser(ctx context.Context, id, name, passwordHash string) e
 func (s *Store) UserByName(ctx context.Context, name string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, name, password_hash FROM users WHERE name = $1`, name).
-		Scan(&u.ID, &u.Name, &u.Password)
+		`SELECT id, name, COALESCE(password_hash, ''), COALESCE(email, ''), COALESCE(google_sub, '') FROM users WHERE name = $1`, name).
+		Scan(&u.ID, &u.Name, &u.Password, &u.Email, &u.GoogleSub)
 	if err != nil {
 		return nil, err
 	}
 	return &u, nil
+}
+
+// NameAvailable — 새 사용자 이름이 이미 사용 중인지 확인.
+func (s *Store) NameAvailable(ctx context.Context, name string) (bool, error) {
+	var n int
+	if err := s.pool.QueryRow(ctx, `SELECT count(*) FROM users WHERE name = $1`, name).Scan(&n); err != nil {
+		return false, err
+	}
+	return n == 0, nil
+}
+
+// ---------- Google SSO ----------
+
+func (s *Store) FindUserByGoogleSub(ctx context.Context, sub string) (*User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, COALESCE(password_hash, ''), COALESCE(email, ''), google_sub FROM users WHERE google_sub = $1`, sub).
+		Scan(&u.ID, &u.Name, &u.Password, &u.Email, &u.GoogleSub)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (s *Store) FindUserByEmail(ctx context.Context, email string) (*User, error) {
+	var u User
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, COALESCE(password_hash, ''), COALESCE(email, ''), COALESCE(google_sub, '') FROM users WHERE email = $1`, email).
+		Scan(&u.ID, &u.Name, &u.Password, &u.Email, &u.GoogleSub)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+// LinkGoogle — 기존 사용자(이메일 기준)에 구글 계정을 연결한다.
+func (s *Store) LinkGoogle(ctx context.Context, userID, sub, email string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET google_sub = $1, email = $2 WHERE id = $3`, sub, email, userID)
+	return err
+}
+
+func (s *Store) CreateGoogleUser(ctx context.Context, id, name, email, sub string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO users (id, name, email, google_sub) VALUES ($1, $2, $3, $4)`, id, name, email, sub)
+	return err
 }
 
 func (s *Store) CreateSession(ctx context.Context, token, userID string) error {
@@ -182,10 +230,10 @@ func (s *Store) CreateSession(ctx context.Context, token, userID string) error {
 func (s *Store) UserByToken(ctx context.Context, token string) (*User, error) {
 	var u User
 	err := s.pool.QueryRow(ctx, `
-		SELECT u.id, u.name, u.password_hash
+		SELECT u.id, u.name, COALESCE(u.password_hash, ''), COALESCE(u.email, ''), COALESCE(u.google_sub, '')
 		FROM sessions s JOIN users u ON u.id = s.user_id
 		WHERE s.token = $1`, token).
-		Scan(&u.ID, &u.Name, &u.Password)
+		Scan(&u.ID, &u.Name, &u.Password, &u.Email, &u.GoogleSub)
 	if err != nil {
 		return nil, err
 	}

@@ -65,6 +65,35 @@ export async function logout(): Promise<void> {
   clearToken();
 }
 
+// ---------- Google SSO ----------
+
+export interface GoogleConfig {
+  client_id: string;
+  enabled: boolean;
+}
+
+export async function getGoogleConfig(): Promise<GoogleConfig> {
+  const res = await fetch('/api/auth/google/config');
+  if (!res.ok) return { client_id: '', enabled: false };
+  return (await res.json()) as GoogleConfig;
+}
+
+/** Google ID 토큰(credential)로 로그인/가입 — 성공 시 세션 토큰 저장 */
+export async function googleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
+  const res = await fetch('/api/auth/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ credential })
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error ?? '구글 로그인 실패');
+  }
+  const out = (await res.json()) as { token: string; user: AuthUser };
+  setToken(out.token);
+  return out;
+}
+
 /** 현재 토큰 검증 — 유효하면 사용자, 아니면 null */
 export async function me(): Promise<AuthUser | null> {
   const token = getToken();

@@ -43,6 +43,8 @@ services:
       PORT: '8000'
       DATABASE_URL: postgres://neon:neon@postgres:5432/neon
       REFEREE_URL: http://referee:8081
+      # Google SSO — 루트 .env 파일의 GOOGLE_CLIENT_ID를 주입한다
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
     depends_on:
       postgres:
         condition: service_healthy
