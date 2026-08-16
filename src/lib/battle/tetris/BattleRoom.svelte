@@ -232,23 +232,25 @@
       <p class="text-sm">상대방과 연결하는 중...</p>
     </div>
   {:else if you && opponent}
-    <div class="grid gap-4 md:grid-cols-2">
+    <!-- 모바일: 두 보드를 나란히 배치(카메라 핏이 어떤 비율에서도 전체를 보여줌),
+         데스크톱: 기존처럼 전체 높이로 나란히 -->
+    <div class="grid grid-cols-2 gap-3 md:gap-4">
       <!-- 상대 보드 -->
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between px-1">
-          <div class="flex items-center gap-2">
-            <span class="size-2 rounded-full bg-rose-400"></span>
-            <span class="text-sm font-bold text-white">{info.opponent_name}</span>
-            <span class="rounded bg-white/[.06] px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-white/35">OPPONENT</span>
+      <div class="flex min-w-0 flex-col gap-1.5 md:gap-2">
+        <div class="flex items-center justify-between gap-1 px-0.5">
+          <div class="flex min-w-0 items-center gap-1.5">
+            <span class="size-2 shrink-0 rounded-full bg-rose-400"></span>
+            <span class="truncate text-xs font-bold text-white sm:text-sm">{info.opponent_name}</span>
+            <span class="hidden rounded bg-white/[.06] px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-white/35 sm:inline-flex">OPPONENT</span>
           </div>
-          <div class="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+          <div class="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground sm:gap-3 sm:text-xs">
             <span>{opponent.score.toLocaleString()}</span>
             {#if opponent.garbage > 0}
-              <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-300">가비지 +{opponent.garbage}</span>
+              <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{opponent.garbage}</span>
             {/if}
           </div>
         </div>
-        <Card class="relative h-[44vh] min-h-[320px] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[calc(100vh-200px)] md:min-h-[430px]">
+        <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
           <ThreeBoard board={opponent.board} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive={false} />
           {#if opponent.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
@@ -259,21 +261,21 @@
       </div>
 
       <!-- 내 보드 -->
-      <div class="flex flex-col gap-2">
-        <div class="flex items-center justify-between px-1">
-          <div class="flex items-center gap-2">
-            <span class="size-2 rounded-full bg-primary"></span>
-            <span class="text-sm font-bold text-white">{info.player_name}</span>
-            <span class="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-primary">YOU</span>
+      <div class="flex min-w-0 flex-col gap-1.5 md:gap-2">
+        <div class="flex items-center justify-between gap-1 px-0.5">
+          <div class="flex min-w-0 items-center gap-1.5">
+            <span class="size-2 shrink-0 rounded-full bg-primary"></span>
+            <span class="truncate text-xs font-bold text-white sm:text-sm">{info.player_name}</span>
+            <span class="hidden rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-primary sm:inline-flex">YOU</span>
           </div>
-          <div class="flex items-center gap-3 font-mono text-xs text-muted-foreground">
+          <div class="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground sm:gap-3 sm:text-xs">
             <span>{you.score.toLocaleString()}</span>
             {#if you.garbage > 0}
-              <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-2 py-0.5 text-[10px] font-bold text-rose-300">가비지 +{you.garbage}</span>
+              <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{you.garbage}</span>
             {/if}
           </div>
         </div>
-        <Card class="relative h-[44vh] min-h-[320px] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[calc(100vh-200px)] md:min-h-[430px]">
+        <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
           <ThreeBoard board={you.board} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} />
           {#if you.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
@@ -285,7 +287,7 @@
     </div>
 
     <!-- 터치 컨트롤 -->
-    <div class="mt-3 flex items-center justify-center gap-2 md:hidden">
+    <div class="mt-2 flex flex-wrap items-center justify-center gap-1.5 md:hidden">
       <Button variant="outline" size="icon" aria-label="왼쪽" {...touchRepeat('left')}><LeftIcon size={18} /></Button>
       <Button variant="outline" size="icon" aria-label="아래로" {...touchSoftDrop}><ArrowDown size={18} /></Button>
       <Button variant="outline" size="icon" aria-label="오른쪽" {...touchRepeat('right')}><RightIcon size={18} /></Button>
