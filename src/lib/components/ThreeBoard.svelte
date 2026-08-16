@@ -234,6 +234,10 @@
 
     camera = new THREE.PerspectiveCamera(34, 1, 0.1, 100);
     camera.position.set(8.7, 10.2, 33.5);
+    // 상대 보드(interactive=false)는 OrbitControls가 없어 카메라가 기본 -Z 방향을
+    // 그대로 보게 된다 — 보드가 왼쪽 아래로 밀려 잘리는 버그. 항상 보드 중심을 바라본다.
+    // (interactive인 경우는 OrbitControls.update()가 다시 정렬하므로 무해하다)
+    camera.lookAt(0, 9.2, 0);
 
     renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
