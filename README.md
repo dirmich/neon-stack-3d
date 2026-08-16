@@ -62,7 +62,7 @@ npm run preview
 #### Google SSO 설정
 
 1. Google Cloud Console → APIs & Services → Credentials → **OAuth client ID (Web application)** 생성
-2. Authorized JavaScript origins에 등록: `http://localhost:3000`, `http://localhost:5173`
+2. Authorized JavaScript origins에 등록: `http://localhost:3000`
 3. 루트에 `.env` 파일을 만들고 client id를 넣는다 (형식은 `.env.example` 참고):
    ```
    GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com
@@ -93,10 +93,11 @@ docker compose up -d --build
 
 ### 개발(네이티브) 실행
 
-프론트엔드 개발 서버는 `/api`, `/ws`를 자동으로 `localhost:8000`(게이트웨이)에 프록시한다.
+프론트엔드 개발 서버는 **포트 3000**에서 뜨며(`vite.config.ts`에 설정), `/api`, `/ws`를 자동으로 `localhost:8000`(게이트웨이)에 프록시한다.
 
 ```bash
 npm run dev
+# → http://localhost:3000
 ```
 
 플레이 방법: 로그인 → 방 리스트 → 방 생성(코드 공유) 또는 참가 → 줄을 지워 상대에게 가비지를 보내 승리하세요.
