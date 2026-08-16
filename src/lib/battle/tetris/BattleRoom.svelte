@@ -1,13 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { ArrowLeft, ArrowDown, ArrowLeft as LeftIcon, ArrowRight as RightIcon, ChevronUp, LoaderCircle, RotateCcw, RotateCw, Swords, X } from 'lucide-svelte';
-  import Button from './ui/Button.svelte';
-  import Card from './ui/Card.svelte';
-  import ThreeBoard from './ThreeBoard.svelte';
-  import { BattleClient } from '../battle/client';
-  import { CLEAR_LABELS, type BattleEvent, type BattlePlayerState, type MatchInfo } from '../battle/types';
-  import { ARR_DELAY, DAS_DELAY } from '../game/engine';
-  import type { Piece } from '../game/tetris';
+  import Button from '../../components/ui/Button.svelte';
+  import Card from '../../components/ui/Card.svelte';
+  import ThreeBoard from '../../components/ThreeBoard.svelte';
+  import { BattleClient } from '../client';
+  import type { BattleEvent, MatchInfo } from '../protocol';
+  import { CLEAR_LABELS, type BattlePlayerState } from './types';
+  import { ARR_DELAY, DAS_DELAY } from '../../game/engine';
+  import type { Piece } from '../../game/tetris';
 
   let {
     info,
@@ -16,7 +17,7 @@
     onExit
   }: {
     info: MatchInfo;
-    client: BattleClient;
+    client: BattleClient<BattlePlayerState>;
     playTone: (frequency: number, duration?: number, volume?: number) => void;
     onExit: () => void;
   } = $props();

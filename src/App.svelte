@@ -8,6 +8,7 @@
     CircleHelp,
     Gamepad2,
     Gauge,
+    LoaderCircle,
     Pause,
     Play,
     RefreshCw,
@@ -20,7 +21,9 @@
     VolumeX,
     X
   } from 'lucide-svelte';
-  import BattleFlow from './lib/components/BattleFlow.svelte';
+  import LoginScreen from './lib/components/LoginScreen.svelte';
+  import BattleFlow from './lib/battle/tetris/BattleFlow.svelte';
+  import { getToken, logout as apiLogout, me, type AuthUser } from './lib/battle/auth';
   import Button from './lib/components/ui/Button.svelte';
   import Card from './lib/components/ui/Card.svelte';
   import PiecePreview from './lib/components/PiecePreview.svelte';
@@ -50,8 +53,11 @@
   let highScore = $state(0);
   let soundEnabled = $state(true);
   let showHelp = $state(false);
-  // 배틀 모드: 단일 플레이와 별개 화면 (로비 → 방)
-  let mode = $state<'single' | 'battle'>('single');
+  // 배틀 모드: 단일 플레이와 별개 화면 (로비 → 방). 로그인 후 기본 화면은 방 리스트다.
+  let mode = $state<'single' | 'battle'>('battle');
+  // 인증: 부팅(토큰 검증) → 로그인 → 앱
+  let phase = $state<'boot' | 'login' | 'app'>('boot');
+  let user = $state<AuthUser | null>(null);
   let audioContext: AudioContext | null = null;
   const music = new MusicPlayer();
   let raf = 0;
@@ -101,6 +107,14 @@
     engine.togglePause();
   }
 
+  async function handleLogout() {
+    await apiLogout();
+    user = null;
+    mode = 'battle';
+    phase = 'login';
+    engine.reset(true);
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (mode !== 'single') return;
     const key = event.key;
@@ -140,6 +154,22 @@
   });
 
   onMount(() => {
+    // 세션 복원: 토큰이 있으면 서버에서 사용자 정보를 검증한다 (비동기)
+    void (async () => {
+      try {
+        if (getToken()) {
+          const u = await me();
+          if (u) {
+            user = u;
+            phase = 'app';
+          }
+        }
+      } catch {
+        /* 세션 복원 실패 — 로그인 화면으로 */
+      }
+      if (phase !== 'app') phase = 'login';
+    })();
+
     try {
       highScore = Number(localStorage.getItem('neon-stack-high-score') || 0);
     } catch {
@@ -203,6 +233,13 @@
   <title>NEON STACK — 3D Tetris</title>
 </svelte:head>
 
+{#if phase === 'boot'}
+  <div class="flex min-h-screen items-center justify-center">
+    <LoaderCircle size={28} class="animate-spin text-primary" />
+  </div>
+{:else if phase === 'login'}
+  <LoginScreen onLogin={(u) => { user = u; phase = 'app'; }} />
+{:else}
 <div class="relative min-h-screen overflow-hidden">
   <div class="pointer-events-none absolute left-1/2 top-[-22rem] h-[38rem] w-[65rem] -translate-x-1/2 rounded-full border border-cyan-300/[.04] bg-cyan-300/[.025] blur-3xl"></div>
 
@@ -233,9 +270,16 @@
         </Button>
       {:else}
         <Button variant="outline" size="sm" onclick={() => (mode = 'single')}>
-          <RefreshCw size={14} /> <span class="hidden sm:inline">메인 메뉴</span>
+          <Gamepad2 size={14} /> <span class="hidden sm:inline">혼자 하기</span>
         </Button>
       {/if}
+      {#if user}
+        <span class="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[.045] px-3 py-1.5 text-xs font-bold text-white md:flex">
+          <span class="size-1.5 rounded-full bg-emerald-400"></span>
+          {user.name}
+        </span>
+      {/if}
+      <Button variant="ghost" size="sm" class="text-muted-foreground" onclick={handleLogout}>로그아웃</Button>
     </div>
   </header>
 
@@ -422,6 +466,7 @@
 
   <footer class="relative z-10 pb-6 text-center text-[9px] font-semibold tracking-[.24em] text-white/15 lg:hidden">NEON STACK · 3D BLOCK PUZZLE</footer>
 </div>
+{/if}
 
 <style>
   :global(.key) {

@@ -1,4 +1,4 @@
-package hub
+package battle
 
 import (
 	"context"
@@ -10,7 +10,6 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"neonstack/gateway/internal/referee"
 	"neonstack/gateway/internal/store"
 )
 
@@ -22,14 +21,15 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
+// Hub — 게임 무관 배틀 허브. Referee를 주입받는다.
 type Hub struct {
 	mu      sync.Mutex
 	rooms   map[string]*Room
-	referee *referee.Client
+	referee Referee
 	store   *store.Store
 }
 
-func New(ref *referee.Client, st *store.Store) *Hub {
+func New(ref Referee, st *store.Store) *Hub {
 	return &Hub{rooms: map[string]*Room{}, referee: ref, store: st}
 }
 
@@ -43,6 +43,7 @@ type Client struct {
 type Room struct {
 	hub     *Hub
 	matchID string
+	game    string
 	mu      sync.Mutex
 	clients map[string]*Client
 	order   []string
@@ -59,11 +60,18 @@ type c2sMessage struct {
 }
 
 // HandleWS upgrades the connection and registers the client in its room.
+// token은 query 파라미터로 받는다 (브라우저 WS는 헤더를 못 붙임).
 func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	matchID := r.URL.Query().Get("match_id")
 	playerID := r.URL.Query().Get("player_id")
-	if matchID == "" || playerID == "" {
-		http.Error(w, "match_id and player_id required", http.StatusBadRequest)
+	token := r.URL.Query().Get("token")
+	if matchID == "" || playerID == "" || token == "" {
+		http.Error(w, "match_id, player_id, token required", http.StatusBadRequest)
+		return
+	}
+	u, err := h.store.UserByToken(r.Context(), token)
+	if err != nil || u.ID != playerID {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	m, err := h.store.MatchByID(r.Context(), matchID)
@@ -96,6 +104,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 		room = &Room{
 			hub:     h,
 			matchID: matchID,
+			game:    m.Game,
 			clients: map[string]*Client{},
 			stopCh:  make(chan struct{}),
 		}
@@ -162,6 +171,7 @@ func (r *Room) start() {
 		startMsg := map[string]any{
 			"type":           "start",
 			"match_id":       r.matchID,
+			"game":           r.game,
 			"you":            pid,
 			"opponent":       opponent,
 			"opponent_name":  names[opponent],
@@ -220,7 +230,7 @@ func (r *Room) handleAction(playerID, action string) {
 	r.broadcastUpdate(up)
 }
 
-func (r *Room) broadcastUpdate(up *referee.Update) {
+func (r *Room) broadcastUpdate(up *Update) {
 	r.mu.Lock()
 	if r.over {
 		r.mu.Unlock()
@@ -229,9 +239,11 @@ func (r *Room) broadcastUpdate(up *referee.Update) {
 	if up.Over {
 		r.over = true
 	}
-	states := map[string]referee.PlayerState{}
-	for _, s := range up.States {
-		states[s.PlayerID] = s
+	states, err := SplitStates(up.States)
+	if err != nil {
+		log.Printf("room %s: split states: %v", r.matchID, err)
+		r.mu.Unlock()
+		return
 	}
 	order := append([]string(nil), r.order...)
 	// 락을 잡은 채 sendTo를 호출하면 데드락 — 메시지를 먼저 만든 뒤 락 밖에서 전송한다
@@ -243,9 +255,9 @@ func (r *Room) broadcastUpdate(up *referee.Update) {
 		opponent := order[1-i]
 		msg := map[string]any{
 			"type":     "state",
-			"you":      states[pid],
-			"opponent": states[opponent],
-			"events":   up.Events,
+			"you":      json.RawMessage(states[pid]),
+			"opponent": json.RawMessage(states[opponent]),
+			"events":   json.RawMessage(up.Events),
 		}
 		out[i] = struct {
 			pid string
@@ -263,7 +275,7 @@ func (r *Room) broadcastUpdate(up *referee.Update) {
 	}
 }
 
-func (r *Room) finish(up *referee.Update, states map[string]referee.PlayerState, order []string) {
+func (r *Room) finish(up *Update, states map[string]json.RawMessage, order []string) {
 	r.hub.mu.Lock()
 	delete(r.hub.rooms, r.matchID)
 	r.hub.mu.Unlock()
@@ -286,8 +298,8 @@ func (r *Room) finish(up *referee.Update, states map[string]referee.PlayerState,
 				result = "win"
 			}
 		}
-		s := states[pid]
-		_ = r.hub.store.FinishPlayer(ctx, r.matchID, pid, s.Score, int64(s.Lines), result)
+		scores := scoreFromState(states[pid])
+		_ = r.hub.store.FinishPlayer(ctx, r.matchID, pid, scores.Score, scores.Lines, result)
 	}
 	_ = r.hub.referee.Delete(ctx, r.matchID)
 
@@ -305,12 +317,29 @@ func (r *Room) finish(up *referee.Update, states map[string]referee.PlayerState,
 			"type":           "gameover",
 			"winner":         winner,
 			"your_result":    yourResult,
-			"your_score":     states[pid].Score,
-			"opponent_score": states[opponent].Score,
+			"your_score":     scoreFromState(states[pid]).Score,
+			"opponent_score": scoreFromState(states[opponent]).Score,
 		}
 		r.sendTo(pid, mustJSON(msg))
 	}
 	time.AfterFunc(500*time.Millisecond, r.closeAll)
+}
+
+// scoreFromState — 게임별 상태에서 범용 점수 필드를 꺼낸다 (없으면 0).
+// 특정 게임이 다른 결과 필드를 저장하려면 저장 로직을 게임별로 확장한다.
+func scoreFromState(raw json.RawMessage) struct {
+	Score int64
+	Lines int64
+} {
+	var v struct {
+		Score int64 `json:"score"`
+		Lines int64 `json:"lines"`
+	}
+	_ = json.Unmarshal(raw, &v)
+	return struct {
+		Score int64
+		Lines int64
+	}{v.Score, v.Lines}
 }
 
 // clientGone is called when a client's read pump exits.

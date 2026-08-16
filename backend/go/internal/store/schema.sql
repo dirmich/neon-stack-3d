@@ -1,6 +1,20 @@
+CREATE TABLE IF NOT EXISTS users (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  token TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS matches (
   id TEXT PRIMARY KEY,
   code TEXT NOT NULL UNIQUE,
+  game TEXT NOT NULL DEFAULT 'tetris',
   status TEXT NOT NULL DEFAULT 'created',
   winner_id TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -11,6 +25,7 @@ CREATE TABLE IF NOT EXISTS match_players (
   match_id TEXT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
   player_id TEXT NOT NULL,
   player_name TEXT NOT NULL,
+  joined_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   score BIGINT NOT NULL DEFAULT 0,
   lines INTEGER NOT NULL DEFAULT 0,
   result TEXT,
@@ -18,3 +33,8 @@ CREATE TABLE IF NOT EXISTS match_players (
 );
 
 CREATE INDEX IF NOT EXISTS idx_match_players_name ON match_players(player_name);
+CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
+
+-- 기존 배포 마이그레이션: 신규 컬럼 추가
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS game TEXT NOT NULL DEFAULT 'tetris';
+ALTER TABLE match_players ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ NOT NULL DEFAULT now();

@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"neonstack/gateway/internal/hub"
+	"neonstack/gateway/internal/auth"
+	"neonstack/gateway/internal/battle"
 	"neonstack/gateway/internal/referee"
 	"neonstack/gateway/internal/store"
 )
@@ -45,7 +46,7 @@ func port() string {
 			return p
 		}
 	}
-	return "8080"
+	return "8000"
 }
 
 func main() {
@@ -78,63 +79,124 @@ func main() {
 	defer st.Close()
 	log.Printf("postgres 연결 완료")
 
+	authSvc := auth.New(st)
 	ref := referee.New(refereeURL)
-	h := hub.New(ref, st)
+	h := battle.New(ref, st)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 
-	// 매치 생성
-	mux.HandleFunc("POST /api/matches", func(w http.ResponseWriter, r *http.Request) {
+	// ---------- 인증 ----------
+	mux.HandleFunc("POST /api/auth/register", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Name string `json:"name"`
+			Name     string `json:"name"`
+			Password string `json:"password"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "name required"})
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 			return
 		}
-		matchID, code, playerID := randomHex(8), joinCode(), randomHex(8)
-		if err := st.CreateMatch(r.Context(), matchID, code, playerID, strings.TrimSpace(body.Name)); err != nil {
+		u, token, err := authSvc.Register(r.Context(), strings.TrimSpace(body.Name), body.Password)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusCreated, map[string]any{"token": token, "user": map[string]string{"id": u.ID, "name": u.Name}})
+	})
+
+	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Name     string `json:"name"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
+			return
+		}
+		u, token, err := authSvc.Login(r.Context(), strings.TrimSpace(body.Name), body.Password)
+		if err != nil {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"token": token, "user": map[string]string{"id": u.ID, "name": u.Name}})
+	})
+
+	mux.HandleFunc("POST /api/auth/logout", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		_ = authSvc.Logout(r.Context(), auth.BearerToken(r))
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+
+	mux.HandleFunc("GET /api/auth/me", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.UserFrom(r.Context())
+		writeJSON(w, http.StatusOK, map[string]string{"id": u.ID, "name": u.Name})
+	}))
+
+	// ---------- 방 리스트 ----------
+	mux.HandleFunc("GET /api/rooms", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		game := r.URL.Query().Get("game")
+		if game == "" {
+			game = "tetris"
+		}
+		u := auth.UserFrom(r.Context())
+		rooms, err := st.ListRooms(r.Context(), game, u.ID, 50)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
+			return
+		}
+		writeJSON(w, http.StatusOK, rooms)
+	}))
+
+	// ---------- 매치 생성 (인증) ----------
+	mux.HandleFunc("POST /api/matches", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.UserFrom(r.Context())
+		var body struct {
+			Game string `json:"game"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		game := strings.TrimSpace(body.Game)
+		if game == "" {
+			game = "tetris"
+		}
+		matchID, code := randomHex(8), joinCode()
+		if err := st.CreateMatch(r.Context(), matchID, code, game, u.ID, u.Name); err != nil {
 			log.Printf("create match: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{
-			"match_id": matchID, "code": code, "player_id": playerID, "player_name": strings.TrimSpace(body.Name),
+			"match_id": matchID, "code": code, "player_id": u.ID, "player_name": u.Name, "game": game,
 		})
-	})
+	}))
 
-	// 코드로 참가
-	mux.HandleFunc("POST /api/matches/join", func(w http.ResponseWriter, r *http.Request) {
+	// ---------- 코드로 참가 (인증) ----------
+	mux.HandleFunc("POST /api/matches/join", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
+		u := auth.UserFrom(r.Context())
 		var body struct {
 			Code string `json:"code"`
-			Name string `json:"name"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request"})
 			return
 		}
 		code := strings.ToUpper(strings.TrimSpace(body.Code))
-		name := strings.TrimSpace(body.Name)
-		if code == "" || name == "" {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "code and name required"})
+		if code == "" {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "code required"})
 			return
 		}
-		playerID := randomHex(8)
-		m, err := st.JoinMatch(r.Context(), code, playerID, name)
+		m, err := st.JoinMatch(r.Context(), code, u.ID, u.Name)
 		if err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]string{"error": err.Error()})
+			writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]string{
-			"match_id": m.ID, "code": m.Code, "player_id": playerID, "player_name": name,
+			"match_id": m.ID, "code": m.Code, "player_id": u.ID, "player_name": u.Name, "game": m.Game,
 		})
-	})
+	}))
 
-	// 매치 상태 조회
-	mux.HandleFunc("GET /api/matches/{id}", func(w http.ResponseWriter, r *http.Request) {
+	// ---------- 매치 상태 조회 ----------
+	mux.HandleFunc("GET /api/matches/{id}", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		m, err := st.MatchByID(r.Context(), id)
 		if err != nil {
@@ -147,22 +209,22 @@ func main() {
 			players = append(players, map[string]any{"player_id": pid, "player_name": name})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"match_id": m.ID, "code": m.Code, "status": m.Status,
+			"match_id": m.ID, "code": m.Code, "game": m.Game, "status": m.Status,
 			"winner_id": m.WinnerID, "players": players,
 		})
-	})
+	}))
 
-	// 리더보드
-	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
+	// ---------- 리더보드 ----------
+	mux.HandleFunc("GET /api/leaderboard", authSvc.RequireAuth(func(w http.ResponseWriter, r *http.Request) {
 		rows, err := st.Leaderboard(r.Context(), 10)
 		if err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
 			return
 		}
 		writeJSON(w, http.StatusOK, rows)
-	})
+	}))
 
-	// 게임 WebSocket
+	// ---------- 게임 WebSocket (token은 query 파라미터) ----------
 	mux.HandleFunc("GET /ws", h.HandleWS)
 
 	addr := ":" + port()

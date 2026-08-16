@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"neonstack/gateway/internal/battle"
 )
 
 type Client struct {
@@ -100,7 +102,18 @@ func (c *Client) Delete(ctx context.Context, matchID string) error {
 	return nil
 }
 
-func (c *Client) Action(ctx context.Context, matchID, playerID, action string) (*Update, error) {
+// toBattle — 게임별 Update를 게임 무관 battle.Update(불투명 JSON)로 감싼다.
+func toBattle(up *Update) *battle.Update {
+	if up == nil {
+		return nil
+	}
+	states, _ := json.Marshal(up.States)
+	events, _ := json.Marshal(up.Events)
+	return &battle.Update{States: states, Events: events, Over: up.Over, Winner: up.Winner}
+}
+
+// Action — battle.Referee 구현.
+func (c *Client) Action(ctx context.Context, matchID, playerID, action string) (*battle.Update, error) {
 	var up Update
 	err := c.post(ctx, "/action", map[string]any{
 		"match_id": matchID, "player_id": playerID, "action": action,
@@ -108,14 +121,15 @@ func (c *Client) Action(ctx context.Context, matchID, playerID, action string) (
 	if err != nil {
 		return nil, err
 	}
-	return &up, nil
+	return toBattle(&up), nil
 }
 
-func (c *Client) Tick(ctx context.Context, matchID string, dtMs int) (*Update, error) {
+// Tick — battle.Referee 구현.
+func (c *Client) Tick(ctx context.Context, matchID string, dtMs int) (*battle.Update, error) {
 	var up Update
 	err := c.post(ctx, "/tick", map[string]any{"match_id": matchID, "dt_ms": dtMs}, &up)
 	if err != nil {
 		return nil, err
 	}
-	return &up, nil
+	return toBattle(&up), nil
 }
