@@ -255,13 +255,13 @@
     <div class="grid grid-cols-2 gap-3 md:gap-4">
       <!-- 상대 보드 -->
       <div class="flex min-w-0 flex-col gap-1.5 md:gap-2">
-        <div class="flex items-center justify-between gap-1 px-0.5">
+        <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-0.5">
           <div class="flex min-w-0 items-center gap-1.5">
             <span class="size-2 shrink-0 rounded-full bg-rose-400"></span>
             <span class="truncate text-xs font-bold text-white sm:text-sm">{info.opponent_name}</span>
             <span class="hidden rounded bg-white/[.06] px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-white/35 sm:inline-flex">OPPONENT</span>
           </div>
-          <div class="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground sm:gap-3 sm:text-xs">
+          <div class="flex flex-wrap items-center justify-end gap-1 font-mono text-[10px] text-muted-foreground sm:gap-2 sm:text-xs">
             <span>{opponent.score.toLocaleString()}</span>
             {#if opponent.garbage > 0}
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{opponent.garbage}</span>
@@ -277,7 +277,7 @@
             {/if}
           </div>
         </div>
-        <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
+        <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">
           <!-- 상대 보드도 드래그로 회전 가능 — 각 보드가 독립된 카메라/OrbitControls를 가져 각도가 독립적으로 유지된다 -->
           <ThreeBoard board={opponent.board} items={opponent.items} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive showHint={false} />
           {#if opponent.status === 'topout'}
@@ -290,13 +290,13 @@
 
       <!-- 내 보드 -->
       <div class="flex min-w-0 flex-col gap-1.5 md:gap-2">
-        <div class="flex items-center justify-between gap-1 px-0.5">
+        <div class="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 px-0.5">
           <div class="flex min-w-0 items-center gap-1.5">
             <span class="size-2 shrink-0 rounded-full bg-primary"></span>
             <span class="truncate text-xs font-bold text-white sm:text-sm">{info.player_name}</span>
             <span class="hidden rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold tracking-[.14em] text-primary sm:inline-flex">YOU</span>
           </div>
-          <div class="flex shrink-0 items-center gap-1.5 font-mono text-[10px] text-muted-foreground sm:gap-3 sm:text-xs">
+          <div class="flex flex-wrap items-center justify-end gap-1 font-mono text-[10px] text-muted-foreground sm:gap-2 sm:text-xs">
             <span>{you.score.toLocaleString()}</span>
             {#if you.garbage > 0}
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{you.garbage}</span>
@@ -312,7 +312,7 @@
             {/if}
           </div>
         </div>
-        <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
+        <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">
           <ThreeBoard board={you.board} items={you.items} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} />
           {#if you.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
