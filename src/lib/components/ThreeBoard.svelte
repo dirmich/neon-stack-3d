@@ -177,12 +177,33 @@
     needsRender = true;
   }
 
+  // 보드 프레임 실치수 + 여유(유닛). 카메라가 이 영역을 항상 전체 담도록 거리를 계산한다.
+  const BOARD_FRAME_W = 11.1;
+  const BOARD_FRAME_H = 21.1;
+  const FIT_PAD = 2.5;
+
   function resize() {
     if (!host || !renderer || !camera) return;
-    const width = host.clientWidth;
-    const height = host.clientHeight;
+    const width = Math.max(1, host.clientWidth);
+    const height = Math.max(1, host.clientHeight);
+    const aspect = width / height;
     renderer.setSize(width, height, false);
-    camera.aspect = width / height;
+    camera.aspect = aspect;
+
+    // 화면 비율에 맞춰 카메라 거리를 조정 — 보드가 어떤 창 크기에서도 전체가 보이게 한다.
+    // 세로/가로 중 더 여유가 필요한 쪽을 기준으로 잡는다.
+    const center = new THREE.Vector3(0, 9.2, 0);
+    const dir = new THREE.Vector3().subVectors(center, camera.position);
+    if (dir.lengthSq() < 1e-9) {
+      dir.set(8.7, 1, 33.5); // 기본 방향 폴백
+    }
+    dir.normalize();
+    const halfTan = Math.tan((34 * Math.PI) / 180 / 2);
+    const needByHeight = (BOARD_FRAME_H + FIT_PAD) / (2 * halfTan);
+    const needByWidth = (BOARD_FRAME_W + FIT_PAD) / (2 * halfTan * aspect);
+    const dist = Math.max(needByHeight, needByWidth);
+    camera.position.copy(center).addScaledVector(dir, dist);
+    camera.lookAt(center);
     camera.updateProjectionMatrix();
     needsRender = true;
   }
