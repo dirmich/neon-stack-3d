@@ -189,20 +189,22 @@ func main() {
 		u := auth.UserFrom(r.Context())
 		var body struct {
 			Game string `json:"game"`
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		game := strings.TrimSpace(body.Game)
 		if game == "" {
 			game = "tetris"
 		}
+		mode := normalizeMode(body.Mode)
 		matchID, code := randomHex(8), joinCode()
-		if err := st.CreateMatch(r.Context(), matchID, code, game, u.ID, u.Name); err != nil {
+		if err := st.CreateMatch(r.Context(), matchID, code, game, mode, u.ID, u.Name); err != nil {
 			log.Printf("create match: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{
-			"match_id": matchID, "code": code, "player_id": u.ID, "player_name": u.Name, "game": game,
+			"match_id": matchID, "code": code, "player_id": u.ID, "player_name": u.Name, "game": game, "mode": mode,
 		})
 	}))
 
@@ -236,21 +238,23 @@ func main() {
 		u := auth.UserFrom(r.Context())
 		var body struct {
 			Game string `json:"game"`
+			Mode string `json:"mode"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		game := strings.TrimSpace(body.Game)
 		if game == "" {
 			game = "tetris"
 		}
+		mode := normalizeMode(body.Mode)
 		matchID, code := randomHex(8), joinCode()
-		if err := st.CreateSoloMatch(r.Context(), matchID, code, game, u.ID, u.Name); err != nil {
+		if err := st.CreateSoloMatch(r.Context(), matchID, code, game, mode, u.ID, u.Name); err != nil {
 			log.Printf("create solo match: %v", err)
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "store error"})
 			return
 		}
 		writeJSON(w, http.StatusCreated, map[string]string{
 			"match_id": matchID, "code": code, "player_id": u.ID, "player_name": u.Name,
-			"game": game, "solo": "true",
+			"game": game, "mode": mode, "solo": "true",
 		})
 	}))
 
@@ -268,7 +272,7 @@ func main() {
 			players = append(players, map[string]any{"player_id": pid, "player_name": name})
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"match_id": m.ID, "code": m.Code, "game": m.Game, "status": m.Status,
+			"match_id": m.ID, "code": m.Code, "game": m.Game, "mode": m.Mode, "status": m.Status,
 			"winner_id": m.WinnerID, "players": players,
 		})
 	}))
@@ -298,6 +302,14 @@ func main() {
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// normalizeMode — 매치 모드 검증. 기본값 normal, item 이외 값은 normal로 정규화.
+func normalizeMode(mode string) string {
+	if strings.TrimSpace(mode) == "item" {
+		return "item"
+	}
+	return "normal"
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

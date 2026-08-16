@@ -12,7 +12,8 @@ import (
 // 다른 게임을 추가하려면 이 인터페이스를 구현하고 matches.game에 게임명을 쓰면 된다.
 type Referee interface {
 	// Create — 매치 시작 (두 플레이어 확정 후 호출).
-	Create(ctx context.Context, matchID string, players [2]string) error
+	// itemMode=true면 아이템 배틀 모드로 시작한다.
+	Create(ctx context.Context, matchID string, players [2]string, itemMode bool) error
 	// Action — 한 플레이어의 입력을 적용하고 최신 상태를 반환.
 	Action(ctx context.Context, matchID, playerID, action string) (*Update, error)
 	// Tick — 경과 시간만큼 시뮬레이션 진행 (중력 등).

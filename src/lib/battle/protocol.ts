@@ -3,13 +3,16 @@
  * 상태(you/opponent)만 게임별 타입 S로 치환된다.
  */
 
-/** 공격/클리어 이벤트 (게임별 kind, clear 값 사용) */
+/** 공격/클리어/아이템 이벤트 (게임별 kind, clear 값 사용) */
 export interface BattleEvent {
   kind: string;
   by?: string;
   clear?: string;
   attack: number;
   winner?: number;
+  /** 아이템 발동 이벤트 전용 (kind === 'item') */
+  item?: string;
+  target?: string;
 }
 
 /** 서버 → 클라이언트 메시지 봉투 (S = 게임별 플레이어 상태) */
@@ -22,6 +25,8 @@ export type ServerMessage<S> =
       opponent_name: string;
       your_index: number;
       opponent_index: number;
+      /** 'normal' | 'item' — 아이템 배틀 모드 */
+      mode?: string;
     }
   | { type: 'state'; you: S; opponent: S; events: BattleEvent[] }
   | {
@@ -50,6 +55,7 @@ export interface MatchCreateResponse {
   player_id: string;
   player_name: string;
   game: string;
+  mode?: string;
   solo?: boolean;
 }
 
@@ -61,6 +67,8 @@ export interface RoomRow {
   player_count: number;
   created_at: string;
   is_mine: boolean;
+  /** 'normal' | 'item' */
+  mode: string;
 }
 
 /** 리더보드 항목 (승패 통계) */

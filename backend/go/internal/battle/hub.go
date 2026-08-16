@@ -45,6 +45,7 @@ type Room struct {
 	hub     *Hub
 	matchID string
 	game    string
+	mode    string
 	mu      sync.Mutex
 	clients map[string]*Client
 	order   []string
@@ -108,6 +109,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 			hub:     h,
 			matchID: matchID,
 			game:    m.Game,
+			mode:    m.Mode,
 			clients: map[string]*Client{},
 			order:   []string{playerID},
 			stopCh:  make(chan struct{}),
@@ -174,7 +176,7 @@ func (r *Room) start() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if err := r.hub.referee.Create(ctx, r.matchID, [2]string{order[0], order[1]}); err != nil {
+	if err := r.hub.referee.Create(ctx, r.matchID, [2]string{order[0], order[1]}, r.mode == "item"); err != nil {
 		log.Printf("room %s: referee create: %v", r.matchID, err)
 		r.broadcastError("레퍼리 연결 실패")
 		r.closeAll()
@@ -189,6 +191,7 @@ func (r *Room) start() {
 			"type":           "start",
 			"match_id":       r.matchID,
 			"game":           r.game,
+			"mode":           r.mode,
 			"you":            pid,
 			"opponent":       opponent,
 			"opponent_name":  names[opponent],

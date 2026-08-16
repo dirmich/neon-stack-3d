@@ -50,3 +50,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHER
 -- CPU 봇 상대 (v1.3.4): 솔로 매치 = 두 번째 플레이어가 서버 봇
 ALTER TABLE matches ADD COLUMN IF NOT EXISTS solo BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE match_players ADD COLUMN IF NOT EXISTS is_bot BOOLEAN NOT NULL DEFAULT false;
+
+-- 아이템 배틀 (v1.4.0): 'normal' | 'item'
+ALTER TABLE matches ADD COLUMN IF NOT EXISTS mode TEXT NOT NULL DEFAULT 'normal';

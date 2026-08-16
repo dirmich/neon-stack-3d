@@ -16,6 +16,44 @@ pub const PIECE_NAMES: [&str; 7] = ["I", "J", "L", "O", "S", "T", "Z"];
 pub type Cell = Option<u8>;
 pub type Board = Vec<Vec<Cell>>;
 
+/// 아이템 배틀 모드의 아이템 종류.
+/// 라인 클리어 시 그 줄에 있던 아이템이 전부 발동한다.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ItemKind {
+    /// 폭탄: 상대에게 가비지 3줄 즉시 추가 (악영향)
+    Attack,
+    /// 가속: 상대 중력 1.5배로 20초 (악영향)
+    Speed,
+    /// 구멍: 상대 보드의 채워진 셀 8개를 무작위로 제거 (악영향)
+    Holes,
+    /// 정리: 내 보드의 가장 낮은 채워진 줄 1개 제거 (이로운)
+    Clear,
+    /// 방패: 다음 가비지 2줄을 무효화 (이로운)
+    Shield,
+    /// 감속: 내 중력 0.7배로 20초 (이로운)
+    Slow,
+}
+
+impl ItemKind {
+    pub fn all() -> [ItemKind; 6] {
+        [ItemKind::Attack, ItemKind::Speed, ItemKind::Holes, ItemKind::Clear, ItemKind::Shield, ItemKind::Slow]
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            ItemKind::Attack => "attack",
+            ItemKind::Speed => "speed",
+            ItemKind::Holes => "holes",
+            ItemKind::Clear => "clear",
+            ItemKind::Shield => "shield",
+            ItemKind::Slow => "slow",
+        }
+    }
+}
+
+/// 아이템 셀 그리드 — board와 같은 크기. 아이템은 빈 셀 위에 놓이며 충돌하지 않는다.
+pub type ItemGrid = Vec<Vec<Option<ItemKind>>>;
+
 pub fn drop_interval_for(level: i32) -> i32 {
     (870 - (level - 1) * 68).max(95)
 }
@@ -134,16 +172,35 @@ fn is_tspin(board: &Board, piece: &Piece, by_rotate: bool) -> bool {
     filled >= 3
 }
 
-pub fn clear_rows(board: &Board) -> (Board, usize) {
-    let remaining: Vec<Vec<Cell>> =
-        board.iter().filter(|row| row.iter().any(|c| c.is_none())).cloned().collect();
+/// 완성 줄을 제거한다. items 그리드는 board와 병렬로 같은 줄을 제거하며,
+/// 제거된 줄에 있던 아이템을 반환한다 (발동 대상).
+pub fn clear_rows(board: &Board, items: &ItemGrid) -> (Board, ItemGrid, usize, Vec<ItemKind>) {
+    let mut cleared_items = Vec::new();
+    let mut remaining: Vec<Vec<Cell>> = Vec::with_capacity(H);
+    let mut remaining_items: Vec<Vec<Option<ItemKind>>> = Vec::with_capacity(H);
+    for r in 0..H {
+        let full = board[r].iter().all(|c| c.is_some());
+        if full {
+            for c in 0..W {
+                if let Some(k) = items[r][c] {
+                    cleared_items.push(k);
+                }
+            }
+        } else {
+            remaining.push(board[r].clone());
+            remaining_items.push(items[r].clone());
+        }
+    }
     let count = H - remaining.len();
     let mut out = Vec::with_capacity(H);
+    let mut out_items = Vec::with_capacity(H);
     for _ in 0..count {
         out.push(vec![None; W]);
+        out_items.push(vec![None; W]);
     }
     out.extend(remaining);
-    (out, count)
+    out_items.extend(remaining_items);
+    (out, out_items, count, cleared_items)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -246,6 +303,7 @@ pub fn create_board() -> Board {
 pub struct Player {
     pub id: String,
     pub board: Board,
+    pub items: ItemGrid,
     pub piece: Piece,
     pub hold: Option<u8>,
     pub can_hold: bool,
@@ -261,6 +319,10 @@ pub struct Player {
     lock_timer: i32,
     lock_resets: u32,
     gravity: i32,
+    gravity_mult: f64,
+    gravity_timer: i32,
+    shield: u32,
+    item_mode: bool,
     soft_drop: bool,
     last_move: LastMove,
     rng: SmallRng,
@@ -268,6 +330,11 @@ pub struct Player {
 
 impl Player {
     pub fn new(id: String, seed: u64) -> Self {
+        Player::new_with_items(id, seed, false)
+    }
+
+    /// item_mode면 빈 셀(행 2..=13)에 아이템 6개를 무작위로 배치한다.
+    pub fn new_with_items(id: String, seed: u64, item_mode: bool) -> Self {
         let mut rng = SmallRng::seed_from_u64(seed);
         let mut bag: Vec<u8> = (0..7).collect();
         for i in (1..7).rev() {
@@ -277,9 +344,25 @@ impl Player {
         let t = bag.remove(0);
         let shape = spawn_shape(t);
         let x = (W as i32 - shape[0].len() as i32) / 2;
+        let mut items = vec![vec![None; W]; H];
+        if item_mode {
+            let kinds = ItemKind::all();
+            let mut placed = 0;
+            let mut guard = 0;
+            while placed < 6 && guard < 400 {
+                guard += 1;
+                let r = rng.gen_range(2..=13);
+                let c = rng.gen_range(0..W);
+                if items[r][c].is_none() {
+                    items[r][c] = Some(kinds[rng.gen_range(0..kinds.len())]);
+                    placed += 1;
+                }
+            }
+        }
         let mut p = Player {
             id,
             board: create_board(),
+            items,
             piece: Piece { t, shape, x, y: -1, rot: 0 },
             hold: None,
             can_hold: true,
@@ -295,6 +378,10 @@ impl Player {
             lock_timer: 0,
             lock_resets: 0,
             gravity: 0,
+            gravity_mult: 1.0,
+            gravity_timer: 0,
+            shield: 0,
+            item_mode,
             soft_drop: false,
             last_move: LastMove::None,
             rng,
@@ -344,11 +431,19 @@ impl Player {
 
     fn apply_garbage(&mut self) {
         while self.garbage > 0 {
+            // 방패(shield)가 있으면 가비지 1줄을 무효화한다 (아이템 모드)
+            if self.shield > 0 {
+                self.shield -= 1;
+                self.garbage -= 1;
+                continue;
+            }
             let hole = self.rng.gen_range(0..W);
             let mut row: Vec<Cell> = vec![Some(6); W];
             row[hole] = None;
             self.board.remove(0); // 맨 위 줄은 오버플로로 버림
             self.board.push(row);
+            self.items.remove(0);
+            self.items.push(vec![None; W]);
             self.garbage -= 1;
         }
     }
@@ -448,14 +543,15 @@ impl Player {
     }
 
     /// 락 수행: 병합, 줄 제거, 점수 계산. 락아웃(전부 보드 위)이면 TopOut.
-    pub fn lock(&mut self) -> ClearKind {
+    /// 반환값: (클리어 종류, 제거된 줄에서 발동된 아이템 목록).
+    pub fn lock(&mut self) -> (ClearKind, Vec<ItemKind>) {
         if self.status != Status::Playing {
-            return ClearKind::None;
+            return (ClearKind::None, Vec::new());
         }
         let cells = self.cells();
         if !cells.is_empty() && cells.iter().all(|(_, y)| *y < 0) {
             self.status = Status::TopOut;
-            return ClearKind::None;
+            return (ClearKind::None, Vec::new());
         }
         let tspin = is_tspin(&self.board, &self.piece, self.last_move == LastMove::Rotate);
         for (x, y) in &cells {
@@ -463,8 +559,9 @@ impl Player {
                 self.board[*y as usize][*x as usize] = Some(self.piece.t);
             }
         }
-        let (board, count) = clear_rows(&self.board);
+        let (board, items, count, cleared_items) = clear_rows(&self.board, &self.items);
         self.board = board;
+        self.items = items;
         let kind = clear_kind(tspin, count);
         if count > 0 {
             self.lines += count as i32;
@@ -481,7 +578,40 @@ impl Player {
             self.combo = 0;
             self.last_clear = ClearKind::None;
         }
-        kind
+        (kind, cleared_items)
+    }
+
+    /// 가속/감속 아이템 적용 (중력 배수 + 지속 시간 ms).
+    fn set_gravity_mult(&mut self, mult: f64, ms: i32) {
+        self.gravity_mult = mult;
+        self.gravity_timer = ms;
+    }
+
+    /// 상대 보드의 채워진 셀 n개를 무작위로 제거한다 (구멍 아이템).
+    pub fn punch_holes(&mut self, n: usize) {
+        let mut idx: Vec<usize> = (0..W * H)
+            .filter(|i| self.board[i / W][i % W].is_some())
+            .collect();
+        for i in (1..idx.len()).rev() {
+            let j = self.rng.gen_range(0..=i);
+            idx.swap(i, j);
+        }
+        for &i in idx.iter().take(n.min(idx.len())) {
+            self.board[i / W][i % W] = None;
+        }
+    }
+
+    /// 내 보드의 가장 낮은 채워진 줄 1개를 제거한다 (정리 아이템).
+    pub fn clear_lowest_row(&mut self) {
+        for r in (0..H).rev() {
+            if self.board[r].iter().any(|c| c.is_some()) {
+                self.board.remove(r);
+                self.board.insert(0, vec![None; W]);
+                self.items.remove(r);
+                self.items.insert(0, vec![None; W]);
+                return;
+            }
+        }
     }
 
     /// 소프트 드롭 한 칸. 막히면 true(락 필요)를 반환.
@@ -504,6 +634,14 @@ impl Player {
         if self.status != Status::Playing {
             return false;
         }
+        // 아이템 효과(가속/감속) 타이머 경과
+        if self.gravity_timer > 0 {
+            self.gravity_timer -= dt_ms;
+            if self.gravity_timer <= 0 {
+                self.gravity_timer = 0;
+                self.gravity_mult = 1.0;
+            }
+        }
         let mut locked = false;
         if self.soft_drop {
             locked = self.soft_step();
@@ -518,7 +656,8 @@ impl Player {
             }
         } else {
             self.gravity += dt_ms;
-            let interval = drop_interval_for(self.level());
+            let base = drop_interval_for(self.level()) as f64;
+            let interval = (base * self.gravity_mult).round().max(1.0) as i32;
             let mut guard = 0;
             while self.gravity >= interval && guard < 8 {
                 self.gravity -= interval;
@@ -543,6 +682,11 @@ pub struct Event {
     pub attack: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub winner: Option<u8>,
+    // 아이템 발동 이벤트 전용 필드
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub item: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -558,6 +702,7 @@ pub struct ActiveView {
 pub struct PlayerView {
     pub player_id: String,
     pub board: Vec<Vec<Option<&'static str>>>,
+    pub items: Vec<Vec<Option<&'static str>>>,
     pub piece: ActiveView,
     pub score: i64,
     pub lines: i32,
@@ -566,6 +711,9 @@ pub struct PlayerView {
     pub garbage: u32,
     pub clear_flash: u32,
     pub status: &'static str,
+    pub shield: u32,
+    pub speed: bool,
+    pub slow: bool,
 }
 
 impl PlayerView {
@@ -576,6 +724,11 @@ impl PlayerView {
                 .board
                 .iter()
                 .map(|row| row.iter().map(|c| c.map(|i| PIECE_NAMES[i as usize])).collect())
+                .collect(),
+            items: p
+                .items
+                .iter()
+                .map(|row| row.iter().map(|k| k.map(|kind| kind.name())).collect())
                 .collect(),
             piece: ActiveView {
                 t: PIECE_NAMES[p.piece.t as usize],
@@ -591,6 +744,9 @@ impl PlayerView {
             garbage: p.garbage,
             clear_flash: p.clear_flash,
             status: if p.status == Status::Playing { "playing" } else { "topout" },
+            shield: p.shield,
+            speed: p.gravity_mult > 1.0,
+            slow: p.gravity_mult < 1.0,
         }
     }
 }
@@ -613,9 +769,17 @@ pub struct Match {
 
 impl Match {
     pub fn new(id: String, p1: String, p2: String) -> Self {
+        Match::new_with_items(id, p1, p2, false)
+    }
+
+    /// item_mode=true면 양쪽 보드에 아이템 6개씩 배치된다 (아이템 배틀).
+    pub fn new_with_items(id: String, p1: String, p2: String, item_mode: bool) -> Self {
         Match {
             id,
-            players: vec![Player::new(p1, 0x5eed_0001), Player::new(p2, 0x5eed_0002)],
+            players: vec![
+                Player::new_with_items(p1, 0x5eed_0001, item_mode),
+                Player::new_with_items(p2, 0x5eed_0002, item_mode),
+            ],
             over: false,
             winner: None,
             events: Vec::new(),
@@ -693,7 +857,7 @@ impl Match {
     }
 
     fn lock_player(&mut self, idx: usize) {
-        let kind = self.players[idx].lock();
+        let (kind, items) = self.players[idx].lock();
         if kind != ClearKind::None {
             let attack = kind.attack();
             if attack > 0 {
@@ -705,8 +869,14 @@ impl Match {
                     clear: Some(kind.name().into()),
                     attack,
                     winner: None,
+                    item: None,
+                    target: None,
                 });
             }
+        }
+        // 제거된 줄의 아이템 발동
+        for item in items {
+            self.apply_item(idx, item);
         }
         let p = &mut self.players[idx];
         if p.status == Status::Playing {
@@ -715,6 +885,47 @@ impl Match {
                 p.status = Status::TopOut;
             }
         }
+    }
+
+    /// 아이템 효과 적용. 악영향은 상대(opp)에게, 이로운 것은 자신에게.
+    fn apply_item(&mut self, idx: usize, item: ItemKind) {
+        let opp = 1 - idx;
+        let attacker_id = self.players[idx].id.clone();
+        let (item_name, target) = match item {
+            ItemKind::Attack => {
+                self.players[opp].garbage += 3;
+                ("attack", Some(opp))
+            }
+            ItemKind::Speed => {
+                self.players[opp].set_gravity_mult(1.5, 20_000);
+                ("speed", Some(opp))
+            }
+            ItemKind::Holes => {
+                self.players[opp].punch_holes(8);
+                ("holes", Some(opp))
+            }
+            ItemKind::Clear => {
+                self.players[idx].clear_lowest_row();
+                ("clear", None)
+            }
+            ItemKind::Shield => {
+                self.players[idx].shield = self.players[idx].shield.saturating_add(2);
+                ("shield", None)
+            }
+            ItemKind::Slow => {
+                self.players[idx].set_gravity_mult(0.7, 20_000);
+                ("slow", None)
+            }
+        };
+        self.events.push(Event {
+            kind: "item".into(),
+            by: Some(attacker_id),
+            clear: None,
+            attack: 0,
+            winner: None,
+            item: Some(item_name.into()),
+            target: target.map(|i| self.players[i].id.clone()),
+        });
     }
 
     fn check_over(&mut self) {
@@ -745,6 +956,8 @@ impl Match {
                 clear: None,
                 attack: 0,
                 winner,
+                item: None,
+                target: None,
             });
         }
     }
@@ -936,6 +1149,75 @@ mod tests {
         let locked = p.step(600);
         assert!(locked);
         assert!(p.cells().iter().all(|(_, y)| *y >= 0));
+    }
+
+    #[test]
+    fn item_mode_places_six_items() {
+        let p = Player::new_with_items("p".into(), 5, true);
+        let count: usize = p.items.iter().map(|row| row.iter().filter(|c| c.is_some()).count()).sum();
+        assert_eq!(count, 6, "아이템 모드면 아이템 6개 배치");
+        // 일반 모드에는 아이템이 없다
+        let pn = Player::new("p".into(), 5);
+        let c0: usize = pn.items.iter().map(|row| row.iter().filter(|c| c.is_some()).count()).sum();
+        assert_eq!(c0, 0);
+    }
+
+    #[test]
+    fn clearing_item_row_triggers_effect() {
+        let mut m = Match::new_with_items("m".into(), "a".into(), "b".into(), true);
+        // a 보드: 맨 아래 줄을 0열만 비운 상태로 채우고, 그 자리에 폭탄 아이템을 둔다
+        m.players[0].items[H - 1][0] = Some(ItemKind::Attack);
+        let mut bottom = full_row(1);
+        bottom[0] = None;
+        m.players[0].board[H - 1] = bottom;
+        m.players[0].piece = Piece { t: 1, shape: vec![vec![1]], x: 0, y: H as i32 - 1, rot: 0 };
+        m.players[0].hard_drop();
+        m.lock_player(0);
+        // 싱글 클리어 공격(0) + 폭탄 아이템(+3)
+        assert_eq!(m.players[1].garbage, 3, "폭탄 아이템 발동 → 상대 가비지 +3");
+        assert_eq!(m.players[0].items[H - 1][0], None, "아이템은 소모되어 사라진다");
+        let evs = m.drain_events();
+        let item_ev = evs.iter().find(|e| e.kind == "item").expect("item 이벤트 발생");
+        assert_eq!(item_ev.item.as_deref(), Some("attack"));
+        assert_eq!(item_ev.by.as_deref(), Some("a"));
+        assert_eq!(item_ev.target.as_deref(), Some("b"));
+    }
+
+    #[test]
+    fn shield_blocks_garbage_rows() {
+        let mut p = Player::new_with_items("p".into(), 3, true);
+        p.shield = 2;
+        p.garbage = 3;
+        p.apply_garbage();
+        assert_eq!(p.garbage, 0);
+        assert_eq!(p.shield, 0, "방패 2줄 소진");
+        // 3줄 중 2줄이 무효화 → 가비지 줄은 1줄만 쌓인다
+        let garbage_rows: usize = p.board.iter().filter(|r| r.iter().any(|c| *c == Some(6))).count();
+        assert_eq!(garbage_rows, 1);
+    }
+
+    #[test]
+    fn gravity_mult_timer_expires() {
+        let mut p = Player::new("p".into(), 11);
+        p.set_gravity_mult(1.5, 100);
+        let _ = p.step(60);
+        assert_eq!(p.gravity_mult, 1.5);
+        let _ = p.step(60); // 120ms 경과 → 타이머 소진
+        assert_eq!(p.gravity_timer, 0);
+        assert_eq!(p.gravity_mult, 1.0, "타이머 종료 후 중력 정상 복귀");
+    }
+
+    #[test]
+    fn beneficial_items_apply_to_self() {
+        let mut m = Match::new_with_items("m".into(), "a".into(), "b".into(), true);
+        // a 보드 바닥에 블록 1개 + 정리 아이템
+        m.players[0].board[H - 1][5] = Some(1);
+        m.players[0].items[H - 1][5] = Some(ItemKind::Clear);
+        // clear_lowest_row를 직접 호출 — 아이템 발동 경로 검증
+        m.players[0].clear_lowest_row();
+        assert_eq!(m.players[0].board[H - 1][5], None, "가장 낮은 줄이 제거된다");
+        m.players[0].set_gravity_mult(0.7, 5000);
+        assert_eq!(m.players[0].gravity_mult, 0.7);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 <script lang="ts" generics="S">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowLeft, Bot, Copy, Crown, LoaderCircle, Plus, RefreshCw, Swords, Trophy, Users, X } from 'lucide-svelte';
+  import { ArrowLeft, Bot, Copy, Crown, LoaderCircle, Plus, RefreshCw, Sparkles, Swords, Trophy, Users, X } from 'lucide-svelte';
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
   import { BattleClient } from './client';
@@ -30,6 +30,8 @@
   let waiting = $state(false);
   let room: MatchCreateResponse | null = $state(null);
   let copied = $state(false);
+  /** 게임 모드 — 방 생성/솔로 매치에 적용된다 */
+  let mode = $state<'normal' | 'item'>('normal');
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const client = new BattleClient<S>();
@@ -93,7 +95,7 @@
   async function handleCreate() {
     error = null;
     try {
-      const res = await createRoom(game);
+      const res = await createRoom(game, mode);
       beginWaiting(res);
       void refresh();
     } catch (e) {
@@ -104,7 +106,7 @@
   async function handleSolo() {
     error = null;
     try {
-      const res = await createSoloRoom(game);
+      const res = await createSoloRoom(game, mode);
       beginWaiting(res);
     } catch (e) {
       error = e instanceof Error ? e.message : '솔로 매치 생성 실패';
@@ -182,13 +184,16 @@
         </div>
       </div>
     </div>
-  </div>
-
-  {#if waiting && room}
+  </div>      {#if waiting && room}
     <Card class="mx-auto w-full max-w-md p-8 text-center">
       <div class="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl border border-primary/25 bg-primary/10">
         <LoaderCircle size={26} class="animate-spin text-primary" />
       </div>
+      {#if room.mode === 'item'}
+        <p class="mx-auto mb-3 inline-flex items-center gap-1.5 rounded-full border border-purple-400/25 bg-purple-500/10 px-3 py-1 text-[10px] font-bold tracking-[.16em] text-purple-300">
+          <Sparkles size={11} /> 아이템 모드
+        </p>
+      {/if}
       <p class="text-[10px] font-bold tracking-[.3em] text-primary">WAITING FOR OPPONENT</p>
       <h3 class="mt-2 text-2xl font-black tracking-[-.04em] text-white">{room.solo ? 'CPU 봇과 연결 중' : '상대방을 기다리는 중'}</h3>
       {#if room.solo}
@@ -215,6 +220,37 @@
       <Button variant="ghost" size="sm" class="mt-8 text-muted-foreground" onclick={cancelWait}>취소</Button>
     </Card>
   {:else}
+    <!-- 게임 모드 선택: 혼자/배틀은 아래 카드로, 일반/아이템은 여기서 선택 -->
+    <Card class="mb-4 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="flex items-center gap-2 text-muted-foreground">
+          <Sparkles size={15} />
+          <span class="text-[10px] font-bold tracking-[.2em]">게임 모드</span>
+        </div>
+        <div class="flex rounded-xl border border-white/10 bg-black/25 p-1">
+          <button
+            class="rounded-lg px-4 py-1.5 text-sm font-bold transition {mode === 'normal' ? 'bg-primary text-black' : 'text-white/40 hover:text-white/70'}"
+            onclick={() => (mode = 'normal')}
+          >
+            일반
+          </button>
+          <button
+            class="rounded-lg px-4 py-1.5 text-sm font-bold transition {mode === 'item' ? 'bg-primary text-black' : 'text-white/40 hover:text-white/70'}"
+            onclick={() => (mode = 'item')}
+          >
+            아이템
+          </button>
+        </div>
+      </div>
+      {#if mode === 'item'}
+        <p class="mt-2.5 text-xs leading-5 text-muted-foreground">
+          보드에 아이템이 숨어 있습니다. 아이템이 있는 줄을 지우면 발동돼요 — 🎁 폭탄·가속·구멍은 <span class="text-rose-300">상대를 방해</span>하고, 🛡️ 정리·방패·감속은 <span class="text-emerald-300">나를 돕습니다</span>.
+        </p>
+      {:else}
+        <p class="mt-2.5 text-xs leading-5 text-muted-foreground">아이템 없이 순수한 실력으로 겨루는 기본 배틀 모드입니다.</p>
+      {/if}
+    </Card>
+
     <div class="grid gap-4 md:grid-cols-2">
       <Card class="p-6">
         <div class="mb-4 flex items-center gap-2 text-muted-foreground">
@@ -222,7 +258,7 @@
           <span class="text-[10px] font-bold tracking-[.2em]">방 만들기</span>
         </div>
         <p class="text-sm leading-6 text-muted-foreground">새 배틀 방을 만들면 방 리스트에 나타납니다. 친구에게 코드를 공유할 수도 있어요.</p>
-        <Button size="lg" class="mt-5 w-full" onclick={handleCreate}><Swords size={16} /> 방 생성</Button>
+        <Button size="lg" class="mt-5 w-full" onclick={handleCreate}><Swords size={16} /> {mode === 'item' ? '아이템 방 생성' : '방 생성'}</Button>
       </Card>
 
       <Card class="p-6">
@@ -251,7 +287,7 @@
       </div>
       <p class="text-sm leading-6 text-muted-foreground">상대 없이 CPU 봇과 바로 대전해 연습하세요. 연습 결과는 리더보드에 반영되지 않습니다.</p>
       <Button size="lg" variant="outline" class="mt-4 w-full border-primary/30 text-primary hover:bg-primary/10" onclick={handleSolo}>
-        <Bot size={16} /> CPU 봇과 연습
+        <Bot size={16} /> {mode === 'item' ? '아이템 봇과 연습' : 'CPU 봇과 연습'}
       </Button>
     </Card>
 
@@ -287,6 +323,11 @@
                   <p class="text-sm font-bold text-white">{row.host_name}</p>
                   <p class="text-[10px] text-white/30">방장 · {formatTime(row.created_at)}</p>
                 </div>
+                {#if row.mode === 'item'}
+                  <span class="flex items-center gap-1 rounded-full border border-purple-400/25 bg-purple-500/10 px-2 py-0.5 text-[9px] font-bold tracking-[.1em] text-purple-300">
+                    <Sparkles size={9} /> 아이템
+                  </span>
+                {/if}
               </div>
               <div class="flex items-center gap-3">
                 <span class="rounded-full border border-white/10 bg-white/[.04] px-2.5 py-1 text-[10px] font-bold text-white/45">

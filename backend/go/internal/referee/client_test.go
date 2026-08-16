@@ -71,6 +71,59 @@ func TestPlayerStateMarshalShapeIsNumberArray(t *testing.T) {
 
 // toBattle 경로(실제 운영 경로) 회귀 방지: 레퍼리 응답을 디코드 → battle.Update로
 // 재직렬화해도 각 상태의 shape가 숫자 배열로 유지돼야 한다.
+// 회귀 방지 (v1.4.0): 게이트웨이가 레퍼리 응답을 자체 PlayerState로 디코드→재직렬화하는데,
+// items/shield/speed/slow 필드가 없으면 아이템 배틀 상태가 통째로 드롭된다.
+// 아이템 필드가 왕복 후에도 유지되는지 검증한다.
+func TestUpdateMarshalStatesKeepsItemFields(t *testing.T) {
+	// Rust 레퍼리가 아이템 모드로 보내는 형태의 원시 JSON.
+	rustRaw := []byte(`{
+		"states": [{
+			"player_id": "p1",
+			"board": [[null, null], [null, null]],
+			"items": [["attack", null], [null, "shield"]],
+			"piece": {"t": "L", "x": 3, "y": -1, "rot": 0,
+				"shape": [[0, 0, 1], [1, 1, 1], [0, 0, 0]]},
+			"score": 0, "lines": 0, "level": 1, "hold": null,
+			"garbage": 0, "clear_flash": 0, "status": "playing",
+			"shield": 2, "speed": true, "slow": false
+		}],
+		"events": [],
+		"over": false,
+		"winner": null
+	}`)
+
+	var up Update
+	if err := json.Unmarshal(rustRaw, &up); err != nil {
+		t.Fatalf("레퍼리 응답 디코드 실패: %v", err)
+	}
+
+	// toBattle와 동일하게 States를 재직렬화한다.
+	states, err := json.Marshal(up.States)
+	if err != nil {
+		t.Fatalf("states 재직렬화 실패: %v", err)
+	}
+
+	var parsed []struct {
+		Items [][]*string `json:"items"`
+		Shield uint32     `json:"shield"`
+		Speed  bool       `json:"speed"`
+		Slow   bool       `json:"slow"`
+	}
+	if err := json.Unmarshal(states, &parsed); err != nil {
+		t.Fatalf("재직렬화된 states 파싱 실패 (items 드롭 회귀): %v\nraw=%s", err, states)
+	}
+	if len(parsed) != 1 {
+		t.Fatalf("states 수 = %d, want 1", len(parsed))
+	}
+	p := parsed[0]
+	if len(p.Items) != 2 || p.Items[0][0] == nil || *p.Items[0][0] != "attack" || p.Items[0][1] != nil || p.Items[1][1] == nil || *p.Items[1][1] != "shield" {
+		t.Fatalf("items 드롭 회귀: items = %v\nraw=%s", p.Items, states)
+	}
+	if p.Shield != 2 || !p.Speed || p.Slow {
+		t.Fatalf("shield/speed/slow 드롭 회귀: shield=%d speed=%v slow=%v\nraw=%s", p.Shield, p.Speed, p.Slow, states)
+	}
+}
+
 func TestUpdateMarshalStatesKeepsNumericShape(t *testing.T) {
 	// Rust 레퍼리가 보내는 형태의 원시 JSON.
 	rustRaw := []byte(`{

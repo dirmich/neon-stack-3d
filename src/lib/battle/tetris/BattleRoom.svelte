@@ -6,7 +6,7 @@
   import ThreeBoard from '../../components/ThreeBoard.svelte';
   import { BattleClient } from '../client';
   import type { BattleEvent, MatchInfo } from '../protocol';
-  import { CLEAR_LABELS, type BattlePlayerState } from './types';
+  import { CLEAR_LABELS, ITEM_LABELS, type BattleItemKind, type BattlePlayerState } from './types';
   import { ARR_DELAY, DAS_DELAY } from '../../game/engine';
   import type { Piece } from '../../game/tetris';
 
@@ -26,7 +26,7 @@
   let opponent = $state<BattlePlayerState | null>(null);
   let result = $state<{ your_result: 'win' | 'loss' | 'draw'; your_score: number; opponent_score: number; forfeit?: boolean } | null>(null);
   let connected = $state(true);
-  let feed = $state<{ id: number; text: string; tone: number }[]>([]);
+  let feed = $state<{ id: number; text: string; tone: number; kind: 'clear' | 'good' | 'bad' }[]>([]);
   let feedId = 0;
   let ready = $state(false);
 
@@ -48,8 +48,24 @@
     const text = `${byName} · ${label} +${event.attack}줄 공격!`;
     const tone = 760 + Math.min(event.attack, 6) * 90;
     const id = ++feedId;
-    feed = [...feed.slice(-3), { id, text, tone }];
+    feed = [...feed.slice(-3), { id, text, tone, kind: 'clear' }];
     playTone(tone, 0.14, 0.05);
+    setTimeout(() => {
+      feed = feed.filter((f) => f.id !== id);
+    }, 4200);
+  }
+
+  /** 아이템 발동 이벤트 피드 — 이로운 것은 초록, 악영향은 빨강 */
+  function pushItemFeed(event: BattleEvent, byName: string) {
+    const label = event.item ? ITEM_LABELS[event.item as BattleItemKind] : null;
+    if (!label) return;
+    const mine = event.by === info.player_id;
+    const verb = label.good || mine ? '발동!' : '당했다!';
+    const text = `${byName} · ${label.name} ${verb} (${label.desc})`;
+    const tone = label.good ? 980 : 320;
+    const id = ++feedId;
+    feed = [...feed.slice(-3), { id, text, tone, kind: label.good ? 'good' : 'bad' }];
+    playTone(tone, 0.12, 0.04);
     setTimeout(() => {
       feed = feed.filter((f) => f.id !== id);
     }, 4200);
@@ -184,6 +200,8 @@
         for (const ev of msg.events) {
           if (ev.kind === 'clear' && ev.attack > 0) {
             pushFeed(ev, ev.by === info.player_id ? ownName : oppName);
+          } else if (ev.kind === 'item' && ev.item) {
+            pushItemFeed(ev, ev.by === info.player_id ? ownName : oppName);
           }
         }
       } else if (msg.type === 'gameover') {
@@ -248,11 +266,20 @@
             {#if opponent.garbage > 0}
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{opponent.garbage}</span>
             {/if}
+            {#if opponent.shield}
+              <span class="rounded-full border border-cyan-400/30 bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300" title="방패 {opponent.shield}줄">🛡{opponent.shield}</span>
+            {/if}
+            {#if opponent.speed}
+              <span class="rounded-full border border-yellow-400/30 bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-bold text-yellow-300" title="중력 가속">⚡</span>
+            {/if}
+            {#if opponent.slow}
+              <span class="rounded-full border border-blue-400/30 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-bold text-blue-300" title="중력 감속">🐢</span>
+            {/if}
           </div>
         </div>
         <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
           <!-- 상대 보드도 드래그로 회전 가능 — 각 보드가 독립된 카메라/OrbitControls를 가져 각도가 독립적으로 유지된다 -->
-          <ThreeBoard board={opponent.board} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive showHint={false} />
+          <ThreeBoard board={opponent.board} items={opponent.items} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} interactive showHint={false} />
           {#if opponent.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-4 py-1.5 text-xs font-bold tracking-[.2em] text-rose-300">TOP OUT</span>
@@ -274,10 +301,19 @@
             {#if you.garbage > 0}
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-1.5 py-0.5 text-[9px] font-bold text-rose-300">+{you.garbage}</span>
             {/if}
+            {#if you.shield}
+              <span class="rounded-full border border-cyan-400/30 bg-cyan-500/15 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300" title="방패 {you.shield}줄">🛡{you.shield}</span>
+            {/if}
+            {#if you.speed}
+              <span class="rounded-full border border-yellow-400/30 bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-bold text-yellow-300" title="중력 가속">⚡</span>
+            {/if}
+            {#if you.slow}
+              <span class="rounded-full border border-blue-400/30 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-bold text-blue-300" title="중력 감속">🐢</span>
+            {/if}
           </div>
         </div>
         <Card class="relative h-[30dvh] min-h-[200px] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[calc(100dvh-200px)] md:min-h-[430px]">
-          <ThreeBoard board={you.board} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} />
+          <ThreeBoard board={you.board} items={you.items} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} />
           {#if you.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-4 py-1.5 text-xs font-bold tracking-[.2em] text-rose-300">TOP OUT</span>
@@ -303,7 +339,10 @@
   {#if feed.length > 0}
     <div class="pointer-events-none absolute right-5 top-16 z-20 flex flex-col items-end gap-2">
       {#each feed as item (item.id)}
-        <div class="animate-[feedIn_.25s_ease-out] rounded-xl border border-primary/25 bg-black/70 px-4 py-2 text-sm font-bold text-primary shadow-lg shadow-black/30 backdrop-blur-md">
+        <div
+          class="animate-[feedIn_.25s_ease-out] rounded-xl border bg-black/70 px-4 py-2 text-sm font-bold shadow-lg shadow-black/30 backdrop-blur-md
+            {item.kind === 'clear' ? 'border-primary/25 text-primary' : item.kind === 'good' ? 'border-emerald-400/30 text-emerald-300' : 'border-rose-400/30 text-rose-300'}"
+        >
           {item.text}
         </div>
       {/each}

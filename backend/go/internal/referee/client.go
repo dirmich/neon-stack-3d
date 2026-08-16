@@ -36,6 +36,7 @@ type PieceState struct {
 type PlayerState struct {
 	PlayerID   string      `json:"player_id"`
 	Board      [][]*string `json:"board"`
+	Items      [][]*string `json:"items"`
 	Piece      PieceState  `json:"piece"`
 	Score      int64       `json:"score"`
 	Lines      int         `json:"lines"`
@@ -44,6 +45,9 @@ type PlayerState struct {
 	Garbage    uint32      `json:"garbage"`
 	ClearFlash uint32      `json:"clear_flash"`
 	Status     string      `json:"status"`
+	Shield     uint32      `json:"shield"`
+	Speed      bool        `json:"speed"`
+	Slow       bool        `json:"slow"`
 }
 
 type Event struct {
@@ -52,6 +56,8 @@ type Event struct {
 	Clear  *string `json:"clear,omitempty"`
 	Attack uint32  `json:"attack"`
 	Winner *uint8  `json:"winner,omitempty"`
+	Item   *string `json:"item,omitempty"`
+	Target *string `json:"target,omitempty"`
 }
 
 type Update struct {
@@ -87,8 +93,8 @@ func (c *Client) post(ctx context.Context, path string, body any, out any) error
 	return nil
 }
 
-func (c *Client) Create(ctx context.Context, matchID string, players [2]string) error {
-	return c.post(ctx, "/match", map[string]any{"match_id": matchID, "players": players}, nil)
+func (c *Client) Create(ctx context.Context, matchID string, players [2]string, itemMode bool) error {
+	return c.post(ctx, "/match", map[string]any{"match_id": matchID, "players": players, "item_mode": itemMode}, nil)
 }
 
 func (c *Client) Delete(ctx context.Context, matchID string) error {

@@ -25,6 +25,8 @@ pub struct AppState {
 struct CreateReq {
     match_id: String,
     players: [String; 2],
+    #[serde(default)]
+    item_mode: bool,
 }
 
 #[derive(Deserialize)]
@@ -53,7 +55,7 @@ struct OkResp {
 async fn create(State(state): State<AppState>, Json(req): Json<CreateReq>) -> Result<Json<OkResp>, (StatusCode, String)> {
     let mut matches = state.matches.lock().unwrap();
     let [p1, p2] = req.players;
-    matches.insert(req.match_id.clone(), Match::new(req.match_id, p1, p2));
+    matches.insert(req.match_id.clone(), Match::new_with_items(req.match_id, p1, p2, req.item_mode));
     Ok(Json(OkResp { ok: true }))
 }
 

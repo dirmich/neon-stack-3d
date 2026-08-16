@@ -20,7 +20,8 @@
     status,
     clearFlash = 0,
     interactive = true,
-    showHint = true
+    showHint = true,
+    items = []
   }: {
     board: Board;
     active: Piece;
@@ -30,6 +31,8 @@
     interactive?: boolean;
     /** "DRAG TO VIEW" 힌트 배지 표시 여부 (기본: interactive와 동일) */
     showHint?: boolean;
+    /** 아이템 배틀 모드 — 보드와 같은 크기의 아이템 셀 (이름 또는 null) */
+    items?: (string | null)[][];
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -54,6 +57,58 @@
   const blockGeometry = new RoundedBoxGeometry(0.92, 0.92, 0.92, 3, 0.09);
   const materials = new Map<PieceType, THREE.MeshStandardMaterial>();
   const ghostMaterials = new Map<PieceType, THREE.MeshBasicMaterial>();
+
+  // 아이템 마커 — 종류별 색상
+  const ITEM_COLORS: Record<string, string> = {
+    attack: '#ff4d6d',
+    speed: '#ffd166',
+    holes: '#b07cff',
+    clear: '#5be39a',
+    shield: '#4dd8ff',
+    slow: '#6db3ff'
+  };
+  const itemGeometry = new THREE.OctahedronGeometry(0.42, 0);
+  const itemMaterials = new Map<string, THREE.MeshStandardMaterial>();
+  const itemGroups = new Map<string, THREE.Group>();
+  let itemsGroup: THREE.Group | undefined;
+
+  function itemGroupFor(key: string, kind: string): THREE.Group {
+    const existing = itemGroups.get(key);
+    if (existing) {
+      existing.visible = true;
+      existing.userData.kind = kind;
+      return existing;
+    }
+    if (!itemMaterials.has(kind)) {
+      const color = new THREE.Color(ITEM_COLORS[kind] ?? '#ffffff');
+      itemMaterials.set(
+        kind,
+        new THREE.MeshStandardMaterial({
+          color,
+          emissive: color,
+          emissiveIntensity: 1.6,
+          metalness: 0.05,
+          roughness: 0.35,
+          transparent: true,
+          opacity: 0.95
+        })
+      );
+    }
+    const group = new THREE.Group();
+    group.userData.kind = kind;
+    const mesh = new THREE.Mesh(itemGeometry, itemMaterials.get(kind)!);
+    group.add(mesh);
+    // 종류 표시용 꼭짓점 방향 반짝임을 위한 작은 헤일로
+    const halo = new THREE.Mesh(
+      itemGeometry,
+      new THREE.MeshBasicMaterial({ color: ITEM_COLORS[kind] ?? '#ffffff', transparent: true, opacity: 0.22 })
+    );
+    halo.scale.setScalar(1.55);
+    group.add(halo);
+    itemsGroup?.add(group);
+    itemGroups.set(key, group);
+    return group;
+  }
 
   // 위치 키(x:y:z) → 메시 풀. 재사용해서 매 프레임 새 메시 생성을 피한다.
   const pool = new Map<string, THREE.Mesh>();
@@ -156,6 +211,17 @@
       })
     );
 
+    // 아이템 셀 마커 (보드 위에 떠 있는 오브젝트)
+    items.forEach((row, y) =>
+      row.forEach((kind, x) => {
+        if (!kind) return;
+        const key = `i:${x}:${y}`;
+        wanted.add(key);
+        const group = itemGroupFor(key, kind);
+        group.position.set(x - (BOARD_WIDTH - 1) / 2, BOARD_HEIGHT - 1 - y, 0.55);
+      })
+    );
+
     if (status !== 'over') {
       for (const [x, y] of cellsFor(active)) {
         if (y < 0) continue;
@@ -177,6 +243,11 @@
     for (const [key, mesh] of pool) {
       if (!wanted.has(key)) mesh.visible = false;
     }
+    for (const [key, group] of itemGroups) {
+      if (!wanted.has(key)) group.visible = false;
+    }
+    // 자동화 검증용 훅 — 렌더링된 아이템 마커 수를 노출한다.
+    if (host) host.dataset.items = String(items.flat().filter(Boolean).length);
     needsRender = true;
   }
 
@@ -303,7 +374,8 @@
 
     piecesGroup = new THREE.Group();
     ghostGroup = new THREE.Group();
-    scene.add(ghostGroup, piecesGroup);
+    itemsGroup = new THREE.Group();
+    scene.add(ghostGroup, piecesGroup, itemsGroup);
 
     createBoardFrame(scene);
     rebuildPieces();
@@ -328,6 +400,17 @@
         }
       }
 
+      // 아이템 마커 부드러운 맥동 (reduced-motion이면 정지)
+      if (!reducedMotion && itemsGroup?.children.length) {
+        const pulse = 0.85 + 0.2 * Math.sin(performance.now() / 380);
+        for (const g of itemsGroup.children) {
+          if (g.visible && g.userData.kind) {
+            g.scale.setScalar(pulse);
+          }
+        }
+        needsRender = true;
+      }
+
       // 플레이 중에는 매 프레임 렌더(낙하/회전 반응), 그 외에는 변경 시에만 렌더.
       if (needsRender || status === 'playing') {
         renderer?.render(scene!, camera!);
@@ -342,8 +425,11 @@
       controls?.dispose();
       renderer?.dispose();
       blockGeometry.dispose();
+      itemGeometry.dispose();
       materials.forEach((material) => material.dispose());
       ghostMaterials.forEach((material) => material.dispose());
+      itemMaterials.forEach((material) => material.dispose());
+      itemGroups.clear();
       if (flashMesh) {
         flashMesh.geometry.dispose();
         (flashMesh.material as THREE.Material).dispose();
@@ -357,6 +443,7 @@
     active;
     status;
     clearFlash;
+    items;
     rebuildPieces();
     // clearFlash 증가 시에만 플래시 연출 (reset으로 0으로 되돌아갈 때는 제외)
     if (clearFlash > prevClearFlash) {

@@ -22,6 +22,7 @@ type MatchRow struct {
 	ID         string
 	Code       string
 	Game       string
+	Mode       string
 	Status     string
 	WinnerID   *string
 	Solo       bool
@@ -44,6 +45,7 @@ type RoomRow struct {
 	PlayerCount int       `json:"player_count"`
 	CreatedAt   time.Time `json:"created_at"`
 	IsMine      bool      `json:"is_mine"`
+	Mode        string    `json:"mode"`
 }
 
 func Connect(ctx context.Context, url string) (*Store, error) {
@@ -62,13 +64,13 @@ func Connect(ctx context.Context, url string) (*Store, error) {
 
 func (s *Store) Close() { s.pool.Close() }
 
-func (s *Store) CreateMatch(ctx context.Context, matchID, code, game, playerID, name string) error {
+func (s *Store) CreateMatch(ctx context.Context, matchID, code, game, mode, playerID, name string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, `INSERT INTO matches (id, code, game) VALUES ($1, $2, $3)`, matchID, code, game); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO matches (id, code, game, mode) VALUES ($1, $2, $3, $4)`, matchID, code, game, mode); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
@@ -81,14 +83,14 @@ func (s *Store) CreateMatch(ctx context.Context, matchID, code, game, playerID, 
 
 // CreateSoloMatch — CPU 봇을 두 번째 플레이어로 넣은 솔로 매치를 만든다.
 // 봇 player_id는 "bot:"+matchID로, 봇 이름은 "CPU 봇"으로 고정.
-func (s *Store) CreateSoloMatch(ctx context.Context, matchID, code, game, hostID, hostName string) error {
+func (s *Store) CreateSoloMatch(ctx context.Context, matchID, code, game, mode, hostID, hostName string) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	if _, err := tx.Exec(ctx,
-		`INSERT INTO matches (id, code, game, solo) VALUES ($1, $2, $3, true)`, matchID, code, game); err != nil {
+		`INSERT INTO matches (id, code, game, mode, solo) VALUES ($1, $2, $3, $4, true)`, matchID, code, game, mode); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx,
@@ -122,7 +124,7 @@ func (s *Store) BotPlayer(ctx context.Context, matchID string) (string, string, 
 // ListRooms returns joinable (waiting) rooms for a game, newest first.
 func (s *Store) ListRooms(ctx context.Context, game, userID string, limit int) ([]RoomRow, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT m.id, m.code, host.player_name, pc.cnt, m.created_at,
+		SELECT m.id, m.code, host.player_name, pc.cnt, m.created_at, m.mode,
 		       EXISTS(SELECT 1 FROM match_players mp2 WHERE mp2.match_id = m.id AND mp2.player_id = $2)
 		FROM matches m
 		JOIN LATERAL (
@@ -144,7 +146,8 @@ func (s *Store) ListRooms(ctx context.Context, game, userID string, limit int) (
 	out := []RoomRow{}
 	for rows.Next() {
 		var r RoomRow
-		if err := rows.Scan(&r.MatchID, &r.Code, &r.HostName, &r.PlayerCount, &r.CreatedAt, &r.IsMine); err != nil {
+		// SELECT 순서: id, code, host_name, cnt, created_at, mode, is_mine
+		if err := rows.Scan(&r.MatchID, &r.Code, &r.HostName, &r.PlayerCount, &r.CreatedAt, &r.Mode, &r.IsMine); err != nil {
 			return nil, err
 		}
 		out = append(out, r)
@@ -158,10 +161,10 @@ func (s *Store) JoinMatch(ctx context.Context, code, playerID, name string) (*Ma
 	var m MatchRow
 	var count int
 	err := s.pool.QueryRow(ctx, `
-		SELECT m.id, m.code, m.game, m.status, m.winner_id, m.solo, m.created_at, m.finished_at,
+		SELECT m.id, m.code, m.game, m.mode, m.status, m.winner_id, m.solo, m.created_at, m.finished_at,
 		       (SELECT count(*) FROM match_players mp WHERE mp.match_id = m.id)
 		FROM matches m WHERE m.code = $1`, code).
-		Scan(&m.ID, &m.Code, &m.Game, &m.Status, &m.WinnerID, &m.Solo, &m.CreatedAt, &m.FinishedAt, &count)
+		Scan(&m.ID, &m.Code, &m.Game, &m.Mode, &m.Status, &m.WinnerID, &m.Solo, &m.CreatedAt, &m.FinishedAt, &count)
 	if err != nil {
 		return nil, fmt.Errorf("방 코드 %q를 찾을 수 없습니다", code)
 	}
@@ -194,8 +197,8 @@ func (s *Store) JoinMatch(ctx context.Context, code, playerID, name string) (*Ma
 func (s *Store) MatchByID(ctx context.Context, id string) (*MatchRow, error) {
 	var m MatchRow
 	err := s.pool.QueryRow(ctx,
-		`SELECT id, code, game, status, winner_id, created_at, finished_at FROM matches WHERE id = $1`, id).
-		Scan(&m.ID, &m.Code, &m.Game, &m.Status, &m.WinnerID, &m.CreatedAt, &m.FinishedAt)
+		`SELECT id, code, game, mode, status, winner_id, created_at, finished_at FROM matches WHERE id = $1`, id).
+		Scan(&m.ID, &m.Code, &m.Game, &m.Mode, &m.Status, &m.WinnerID, &m.CreatedAt, &m.FinishedAt)
 	if err != nil {
 		return nil, err
 	}

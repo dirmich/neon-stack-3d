@@ -27,15 +27,15 @@ export async function listRooms(game = 'tetris'): Promise<RoomRow[]> {
   return (await res.json()) as RoomRow[];
 }
 
-export async function createRoom(game = 'tetris'): Promise<MatchCreateResponse> {
-  const res = await fetch('/api/matches', { method: 'POST', headers: headers(), body: JSON.stringify({ game }) });
+export async function createRoom(game = 'tetris', mode: 'normal' | 'item' = 'normal'): Promise<MatchCreateResponse> {
+  const res = await fetch('/api/matches', { method: 'POST', headers: headers(), body: JSON.stringify({ game, mode }) });
   if (!res.ok) throw await errorFrom(res, '방 생성 실패');
   return (await res.json()) as MatchCreateResponse;
 }
 
 /** CPU 봇과 혼자 연습하는 솔로 매치 생성 (상대는 서버 봇) */
-export async function createSoloRoom(game = 'tetris'): Promise<MatchCreateResponse> {
-  const res = await fetch('/api/matches/solo', { method: 'POST', headers: headers(), body: JSON.stringify({ game }) });
+export async function createSoloRoom(game = 'tetris', mode: 'normal' | 'item' = 'normal'): Promise<MatchCreateResponse> {
+  const res = await fetch('/api/matches/solo', { method: 'POST', headers: headers(), body: JSON.stringify({ game, mode }) });
   if (!res.ok) throw await errorFrom(res, '솔로 매치 생성 실패');
   return (await res.json()) as MatchCreateResponse;
 }
