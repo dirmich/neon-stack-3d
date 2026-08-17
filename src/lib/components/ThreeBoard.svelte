@@ -69,9 +69,115 @@
   };
   const itemGeometry = new THREE.OctahedronGeometry(0.46, 0);
   const itemRingGeometry = new THREE.RingGeometry(0.32, 0.52, 28);
-  const itemMaterials = new Map<string, THREE.MeshStandardMaterial>();
   const itemGroups = new Map<string, THREE.Group>();
+  // 종류별 고유 3D 모양 — 지오메트리/재질 공유, 마커마다 clone(true)로 인스턴스화
+  const itemShapeCache = new Map<string, THREE.Group>();
   let itemsGroup: THREE.Group | undefined;
+
+  // 아이템 종류별로 효과가 한눈에 드러나는 모양을 만든다:
+  //  attack=폭탄  speed=▲속도상승  slow=▼속도감소  holes=↔방향반전  shield=방패  clear=✨스파클
+  function shapeForKind(kind: string): THREE.Group {
+    const cached = itemShapeCache.get(kind);
+    if (cached) return cached;
+    const color = new THREE.Color(ITEM_COLORS[kind] ?? '#ffffff');
+    const mat = () =>
+      new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 2.2,
+        metalness: 0.05,
+        roughness: 0.3,
+        transparent: true,
+        opacity: 0.95
+      });
+    const group = new THREE.Group();
+    const add = (
+      geo: THREE.BufferGeometry,
+      material: THREE.Material,
+      x = 0,
+      y = 0,
+      z = 0,
+      rx = 0,
+      ry = 0,
+      rz = 0
+    ) => {
+      const mesh = new THREE.Mesh(geo, material);
+      mesh.position.set(x, y, z);
+      mesh.rotation.set(rx, ry, rz);
+      group.add(mesh);
+    };
+    switch (kind) {
+      case 'attack': {
+        // 폭탄 — 저폴리 구 + 심지 + 불꽃
+        add(new THREE.IcosahedronGeometry(0.3, 0), mat(), 0, 0, 0.05);
+        add(new THREE.CylinderGeometry(0.045, 0.045, 0.16, 8), mat(), 0, 0.4, 0.12);
+        add(
+          new THREE.SphereGeometry(0.07, 8, 8),
+          new THREE.MeshBasicMaterial({
+            color: '#ffe27a',
+            transparent: true,
+            opacity: 0.95,
+            blending: THREE.AdditiveBlending
+          }),
+          0,
+          0.52,
+          0.14
+        );
+        break;
+      }
+      case 'speed':
+        // 속도 상승 ▲
+        add(new THREE.ConeGeometry(0.3, 0.62, 4), mat(), 0, 0.1, 0.05);
+        break;
+      case 'slow':
+        // 속도 감소 ▼ (위쪽 콘을 뒤집음)
+        add(new THREE.ConeGeometry(0.3, 0.62, 4), mat(), 0, 0.1, 0.05, Math.PI);
+        break;
+      case 'holes': {
+        // 방향키 반전 ↔ — 양방향 화살표
+        add(new THREE.BoxGeometry(0.52, 0.12, 0.12), mat());
+        add(new THREE.ConeGeometry(0.14, 0.22, 4), mat(), 0.34, 0, 0, 0, 0, -Math.PI / 2);
+        add(new THREE.ConeGeometry(0.14, 0.22, 4), mat(), -0.34, 0, 0, 0, 0, Math.PI / 2);
+        break;
+      }
+      case 'shield': {
+        // 방패 — 세로 라운드 박스 + 십자 배지
+        add(new RoundedBoxGeometry(0.34, 0.44, 0.09, 2, 0.05), mat());
+        add(new THREE.BoxGeometry(0.2, 0.07, 0.14), mat(), 0, 0.02, 0.03);
+        add(new THREE.BoxGeometry(0.07, 0.26, 0.14), mat(), 0, 0.02, 0.03);
+        break;
+      }
+      case 'clear': {
+        // 스파클 ✨ — 4각 별(ExtrudeGeometry)
+        const shape = new THREE.Shape();
+        const R = 0.34;
+        const r = 0.1;
+        for (let i = 0; i < 8; i++) {
+          const radius = i % 2 === 0 ? R : r;
+          const angle = (i / 8) * Math.PI * 2;
+          const px = Math.cos(angle) * radius;
+          const py = Math.sin(angle) * radius;
+          if (i === 0) shape.moveTo(px, py);
+          else shape.lineTo(px, py);
+        }
+        shape.closePath();
+        const geo = new THREE.ExtrudeGeometry(shape, {
+          depth: 0.08,
+          bevelEnabled: true,
+          bevelSize: 0.02,
+          bevelThickness: 0.02,
+          bevelSegments: 1
+        });
+        geo.center();
+        add(geo, mat());
+        break;
+      }
+      default:
+        add(new THREE.OctahedronGeometry(0.46, 0), mat());
+    }
+    itemShapeCache.set(kind, group);
+    return group;
+  }
 
   function itemGroupFor(key: string, kind: string): THREE.Group {
     const existing = itemGroups.get(key);
@@ -80,28 +186,13 @@
       existing.userData.kind = kind;
       return existing;
     }
-    if (!itemMaterials.has(kind)) {
-      const color = new THREE.Color(ITEM_COLORS[kind] ?? '#ffffff');
-      itemMaterials.set(
-        kind,
-        new THREE.MeshStandardMaterial({
-          color,
-          emissive: color,
-          emissiveIntensity: 2.2,
-          metalness: 0.05,
-          roughness: 0.3,
-          transparent: true,
-          opacity: 0.95
-        })
-      );
-    }
     const group = new THREE.Group();
     group.userData.kind = kind;
-    // 메인 마커(결정) — 블록이 쌓여 있어도 가려지지 않게 셀 위로 떠오른다
+    // 메인 마커 — 종류별 고유 모양. 블록이 쌓여 있어도 가려지지 않게 셀 위로 떠오른다.
     const marker = new THREE.Group();
     marker.position.set(0, 0.35, 0.4);
-    const mesh = new THREE.Mesh(itemGeometry, itemMaterials.get(kind)!);
-    marker.add(mesh);
+    // clone(true): 지오메트리/재질은 공유하고 트랜스폼만 분리한다
+    marker.add(shapeForKind(kind).clone(true));
     // 종류 색상 헤일로 — 가산 블렌딩으로 어두운 배경에서 발광
     const halo = new THREE.Mesh(
       itemGeometry,
@@ -458,7 +549,14 @@
       itemRingGeometry.dispose();
       materials.forEach((material) => material.dispose());
       ghostMaterials.forEach((material) => material.dispose());
-      itemMaterials.forEach((material) => material.dispose());
+      itemShapeCache.forEach((shape) =>
+        shape.traverse((obj) => {
+          if ((obj as THREE.Mesh).isMesh) {
+            (obj as THREE.Mesh).geometry.dispose();
+            ((obj as THREE.Mesh).material as THREE.Material).dispose();
+          }
+        })
+      );
       itemGroups.clear();
       if (flashMesh) {
         flashMesh.geometry.dispose();
