@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowLeft, ArrowDown, ArrowLeft as LeftIcon, ArrowRight as RightIcon, ChevronUp, LoaderCircle, RotateCcw, RotateCw, Swords, X } from 'lucide-svelte';
+  import { ArrowLeft, ArrowDown, ArrowLeft as LeftIcon, ArrowRight as RightIcon, ChevronUp, LoaderCircle, RotateCcw, RotateCw, Sparkles, Swords, X } from 'lucide-svelte';
   import Button from '../../components/ui/Button.svelte';
   import Card from '../../components/ui/Card.svelte';
   import FullscreenButton from '../../components/ui/FullscreenButton.svelte';
   import ThreeBoard from '../../components/ThreeBoard.svelte';
+  import ItemGuideDialog from './ItemGuideDialog.svelte';
   import { BattleClient } from '../client';
   import type { BattleEvent, MatchInfo } from '../protocol';
   import { CLEAR_LABELS, ITEM_LABELS, type BattleItemKind, type BattlePlayerState } from './types';
@@ -34,6 +35,8 @@
   let myBursts = $state<{ x: number; y: number; kind: string; id: number }[]>([]);
   let oppBursts = $state<{ x: number; y: number; kind: string; id: number }[]>([]);
   let burstId = 0;
+  let itemGuideOpen = $state(false);
+  let isItemMatch = $state(false);
 
   const GAME_KEYS = [
     'ArrowLeft', 'ArrowRight', 'ArrowDown', 'ArrowUp', ' ', 'z', 'Z', 'c', 'C', 'x', 'X', 'w', 'W', 'a', 'A', 's', 'S', 'd', 'D', 'Shift', 'Escape', 'q', 'Q'
@@ -100,7 +103,10 @@
   function handleKeydown(event: KeyboardEvent) {
     if (!GAME_KEYS.includes(event.key)) return;
     event.preventDefault();
-    if (result) return;
+    // 아이템 소개 다이얼로그가 열려 있으면 게임 입력/종료를 막는다.
+    // 다이얼로그 자체 Esc 핸들러가 먼저 실행돼 itemGuideOpen이 이미 false일 수 있으므로
+    // DOM(플러시 전)까지 함께 확인한다.
+    if (result || itemGuideOpen || document.querySelector('.fixed.inset-0.z-50')) return;
     switch (event.key) {
       case 'ArrowLeft':
       case 'a':
@@ -200,6 +206,10 @@
         you = msg.you;
         opponent = msg.opponent;
         ready = true;
+        // 아이템 매치 여부 — 아이템 셀이 하나라도 있으면 소개 버튼을 보여준다
+        if (msg.you.items?.some((row) => row.some(Boolean)) || msg.opponent.items?.some((row) => row.some(Boolean))) {
+          isItemMatch = true;
+        }
         const ownName = info.player_name;
         const oppName = info.opponent_name;
         for (const ev of msg.events) {
@@ -251,6 +261,11 @@
     </div>
     <div class="flex items-center gap-2">
       <FullscreenButton />
+      {#if isItemMatch}
+        <Button variant="ghost" size="icon" aria-label="아이템 소개" title="아이템 소개" onclick={() => (itemGuideOpen = true)}>
+          <Sparkles size={18} class="text-primary" />
+        </Button>
+      {/if}
       <div class="flex items-center gap-2 text-[10px] font-bold tracking-[.18em] text-muted-foreground">
         <Swords size={13} class="text-primary" />
         <span class="hidden sm:inline">BATTLE</span>
@@ -362,6 +377,9 @@
       {/each}
     </div>
   {/if}
+
+  <!-- 아이템 소개 다이얼로그 -->
+  <ItemGuideDialog open={itemGuideOpen} onclose={() => (itemGuideOpen = false)} />
 
   <!-- 게임오버 오버레이 -->
   {#if result}

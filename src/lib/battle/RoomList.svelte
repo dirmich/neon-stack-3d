@@ -3,6 +3,7 @@
   import { ArrowLeft, Bot, Copy, Crown, LoaderCircle, Plus, RefreshCw, Sparkles, Swords, Trophy, Users, X } from 'lucide-svelte';
   import Button from '../components/ui/Button.svelte';
   import Card from '../components/ui/Card.svelte';
+  import ItemGuideDialog from './tetris/ItemGuideDialog.svelte';
   import { BattleClient } from './client';
   import type { LeaderboardEntry, LeaderboardResponse, MatchCreateResponse, MatchInfo, RoomRow } from './protocol';
   import { createRoom, createSoloRoom, fetchLeaderboard, joinRoom, listRooms } from './rooms';
@@ -32,6 +33,7 @@
   let copied = $state(false);
   /** 게임 모드 — 방 생성/솔로 매치에 적용된다 */
   let mode = $state<'normal' | 'item'>('normal');
+  let showItemGuide = $state(false);
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const client = new BattleClient<S>();
@@ -227,7 +229,12 @@
           <Sparkles size={15} />
           <span class="text-[10px] font-bold tracking-[.2em]">게임 모드</span>
         </div>
-        <div class="flex rounded-xl border border-white/10 bg-black/25 p-1">
+        <div class="flex items-center gap-2">
+          <Button variant="outline" size="sm" class="text-white/70" aria-label="아이템 소개" onclick={() => (showItemGuide = true)}>
+            <Sparkles size={13} class="text-primary" />
+            <span class="hidden sm:inline">아이템 소개</span>
+          </Button>
+          <div class="flex rounded-xl border border-white/10 bg-black/25 p-1">
           <button
             class="rounded-lg px-4 py-1.5 text-sm font-bold transition {mode === 'normal' ? 'bg-primary text-black' : 'text-white/40 hover:text-white/70'}"
             onclick={() => (mode = 'normal')}
@@ -240,6 +247,7 @@
           >
             아이템
           </button>
+          </div>
         </div>
       </div>
       {#if mode === 'item'}
@@ -250,6 +258,7 @@
         <p class="mt-2.5 text-xs leading-5 text-muted-foreground">아이템 없이 순수한 실력으로 겨루는 기본 배틀 모드입니다.</p>
       {/if}
     </Card>
+    <ItemGuideDialog open={showItemGuide} onclose={() => (showItemGuide = false)} />
 
     <div class="grid gap-4 md:grid-cols-2">
       <Card class="p-6">
