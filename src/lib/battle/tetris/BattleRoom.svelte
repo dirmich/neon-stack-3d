@@ -289,7 +289,7 @@
         </div>
         <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">
           <!-- 상대 보드도 드래그로 회전 가능 — 각 보드가 독립된 카메라/OrbitControls를 가져 각도가 독립적으로 유지된다 -->
-          <ThreeBoard board={opponent.board} items={opponent.items} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} bursts={oppBursts} interactive showHint={false} />
+          <ThreeBoard board={opponent.board} items={opponent.items} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} bursts={oppBursts} itemLabels={ITEM_LABELS} interactive showHint={false} />
           {#if opponent.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-4 py-1.5 text-xs font-bold tracking-[.2em] text-rose-300">TOP OUT</span>
@@ -323,7 +323,7 @@
           </div>
         </div>
         <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">
-          <ThreeBoard board={you.board} items={you.items} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} bursts={myBursts} />
+          <ThreeBoard board={you.board} items={you.items} active={toPiece(you)} status={boardStatus(you)} clearFlash={you.clear_flash} bursts={myBursts} itemLabels={ITEM_LABELS} />
           {#if you.status === 'topout'}
             <div class="absolute inset-2 z-10 flex items-center justify-center rounded-[1.35rem] bg-[#070910]/70 backdrop-blur-[3px]">
               <span class="rounded-full border border-rose-400/30 bg-rose-500/15 px-4 py-1.5 text-xs font-bold tracking-[.2em] text-rose-300">TOP OUT</span>

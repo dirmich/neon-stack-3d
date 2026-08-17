@@ -22,7 +22,8 @@
     interactive = true,
     showHint = true,
     items = [],
-    bursts = []
+    bursts = [],
+    itemLabels = {}
   }: {
     board: Board;
     active: Piece;
@@ -36,6 +37,8 @@
     items?: (string | null)[][];
     /** 아이템 발동 폭발 연출 — 발동된 셀 (x, y) + 종류 + 고유 id */
     bursts?: { x: number; y: number; kind: string; id: number }[];
+    /** 아이템 종류 → 툴팁 라벨 (호버 시 표시) */
+    itemLabels?: Record<string, { name: string; desc: string; good?: boolean }>;
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -49,6 +52,10 @@
   let frame = 0;
   let resizeObserver: ResizeObserver | undefined;
   let needsRender = true;
+
+  // 아이템 마커 호버 툴팁 — 레이캐스트로 3D 마커 위에 포인터가 있는지 감지한다
+  let hoveredItem = $state<{ kind: string; name: string; desc: string; good?: boolean; px: number; py: number } | null>(null);
+  const raycaster = new THREE.Raycaster();
 
   // 아이템 발동 폭발 — 활성 버스트 목록 (reduced-motion이면 아예 스폰하지 않는다)
   const activeBursts: {
@@ -387,6 +394,48 @@
   let burstsSeen = 0;
 
   /** 아이템 발동 시 셀에서 폭발 연출 — 아이템 모양이 부풀며 사라지고 섬광+스파크가 튄다 */
+  /** 포인터를 아이템 마커 위에 올리면 효과 설명 툴팁을 보여준다 */
+  function handlePointerMove(e: PointerEvent) {
+    if (!renderer || !camera || !itemsGroup) return;
+    const rect = canvas.getBoundingClientRect();
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1
+    );
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(itemsGroup.children, true);
+    let target: THREE.Object3D | null = null;
+    for (const h of hits) {
+      let obj: THREE.Object3D | null = h.object;
+      let depth = 0;
+      while (obj) {
+        // itemsGroup의 직속 자식 = 아이템 마커 그룹 (visible=false면 숨겨진 셀)
+        if (obj.parent === itemsGroup && obj.visible) {
+          target = obj;
+          break;
+        }
+        obj = obj.parent;
+        depth += 1;
+      }
+      if (target) break;
+    }
+    if (target && target.userData.kind) {
+      const kind = String(target.userData.kind);
+      const label = itemLabels[kind];
+      hoveredItem = {
+        kind,
+        name: label?.name ?? kind,
+        desc: label?.desc ?? '',
+        good: label?.good,
+        // 툴팁이 보드 밖으로 나가지 않게 클램프
+        px: Math.min(Math.max(e.clientX - rect.left, 70), Math.max(rect.width - 70, 70)),
+        py: Math.min(Math.max(e.clientY - rect.top, 34), Math.max(rect.height - 20, 34))
+      };
+    } else {
+      hoveredItem = null;
+    }
+  }
+
   function spawnBurst(x: number, y: number, kind: string) {
     if (!scene || reducedMotion) return;
     const group = new THREE.Group();
@@ -588,6 +637,12 @@
     resizeObserver.observe(host);
     resize();
 
+    canvas.addEventListener('pointermove', handlePointerMove);
+    const clearHover = () => {
+      hoveredItem = null;
+    };
+    host.addEventListener('pointerleave', clearHover);
+
     const animate = () => {
       frame = requestAnimationFrame(animate);
       controls?.update();
@@ -659,6 +714,9 @@
     return () => {
       cancelAnimationFrame(frame);
       resizeObserver?.disconnect();
+      canvas.removeEventListener('pointermove', handlePointerMove);
+      host.removeEventListener('pointerleave', clearHover);
+      hoveredItem = null;
       controls?.dispose();
       renderer?.dispose();
       blockGeometry.dispose();
@@ -717,6 +775,26 @@
       <span class="rounded-full border border-white/[.08] bg-black/25 px-3 py-1 text-[10px] font-semibold tracking-[.16em] text-white/35 backdrop-blur-md">
         DRAG TO VIEW
       </span>
+    </div>
+  {/if}
+  <!-- 아이템 마커 호버 툴팁 -->
+  {#if hoveredItem}
+    <div
+      class="pointer-events-none absolute z-20 w-max max-w-[190px] -translate-x-1/2 -translate-y-full rounded-lg border border-white/10 bg-[#0b0f18]/92 px-2.5 py-1.5 shadow-xl shadow-black/50 backdrop-blur-md"
+      style="left: {hoveredItem.px}px; top: {hoveredItem.py - 12}px;"
+    >
+      <div class="flex items-center gap-1.5 text-[11px] font-bold text-white">
+        <span class="size-1.5 shrink-0 rounded-full" style="background: {ITEM_COLORS[hoveredItem.kind] ?? '#ffffff'}; box-shadow: 0 0 6px {ITEM_COLORS[hoveredItem.kind] ?? '#ffffff'};"></span>
+        <span>{hoveredItem.name}</span>
+        {#if hoveredItem.good === false}
+          <span class="rounded bg-rose-500/15 px-1 py-px text-[9px] font-bold tracking-wide text-rose-300">공격</span>
+        {:else}
+          <span class="rounded bg-emerald-500/15 px-1 py-px text-[9px] font-bold tracking-wide text-emerald-300">도움</span>
+        {/if}
+      </div>
+      {#if hoveredItem.desc}
+        <div class="mt-0.5 text-[10px] leading-snug text-white/60">{hoveredItem.desc}</div>
+      {/if}
     </div>
   {/if}
 </div>
