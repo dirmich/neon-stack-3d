@@ -34,6 +34,8 @@ export interface BattlePlayerState {
   shield?: number;
   speed?: boolean;
   slow?: boolean;
+  /** 다가올 다음 블록 (7-bag, 최대 3개) */
+  next: string[];
 }
 
 /** 아이템 이름 → 표시 라벨/설명 */

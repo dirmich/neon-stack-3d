@@ -4,6 +4,7 @@
   import Button from '../../components/ui/Button.svelte';
   import Card from '../../components/ui/Card.svelte';
   import FullscreenButton from '../../components/ui/FullscreenButton.svelte';
+  import PiecePreview from '../../components/PiecePreview.svelte';
   import ThreeBoard from '../../components/ThreeBoard.svelte';
   import ItemGuideDialog from './ItemGuideDialog.svelte';
   import { BattleClient } from '../client';
@@ -306,6 +307,14 @@
             {/if}
           </div>
         </div>
+        <div class="flex items-center justify-between gap-2 px-0.5">
+          <span class="shrink-0 text-[9px] font-bold tracking-[.16em] text-white/25">NEXT</span>
+          <div class="flex items-end gap-1">
+            {#each (opponent.next ?? []).slice(0, 3) as t, i}
+              <span class={i === 0 ? '' : 'opacity-55'}><PiecePreview type={t as Piece['type']} size="sm" /></span>
+            {/each}
+          </div>
+        </div>
         <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">
           <!-- 상대 보드도 드래그로 회전 가능 — 각 보드가 독립된 카메라/OrbitControls를 가져 각도가 독립적으로 유지된다 -->
           <ThreeBoard board={opponent.board} items={opponent.items} active={toPiece(opponent)} status={boardStatus(opponent)} clearFlash={opponent.clear_flash} bursts={oppBursts} itemLabels={ITEM_LABELS} interactive showHint={false} />
@@ -339,6 +348,14 @@
             {#if you.slow}
               <span class="rounded-full border border-blue-400/30 bg-blue-500/15 px-1.5 py-0.5 text-[9px] font-bold text-blue-300" title="중력 감속">🐢</span>
             {/if}
+          </div>
+        </div>
+        <div class="flex items-center justify-between gap-2 px-0.5">
+          <span class="shrink-0 text-[9px] font-bold tracking-[.16em] text-white/25">NEXT</span>
+          <div class="flex items-end gap-1">
+            {#each (you.next ?? []).slice(0, 3) as t, i}
+              <span class={i === 0 ? '' : 'opacity-55'}><PiecePreview type={t as Piece['type']} size="sm" /></span>
+            {/each}
           </div>
         </div>
         <Card class="relative h-[clamp(170px,40dvh,400px)] overflow-hidden border-primary/15 bg-[#0c0f17]/75 p-2 md:h-[clamp(280px,calc(100dvh-220px),700px)]">

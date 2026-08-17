@@ -48,6 +48,8 @@ type PlayerState struct {
 	Shield     uint32      `json:"shield"`
 	Speed      bool        `json:"speed"`
 	Slow       bool        `json:"slow"`
+	// 다가올 다음 블록 (7-bag 남은 순서, 최대 3개) — NEXT 프리뷰용
+	Next []string `json:"next"`
 }
 
 type Event struct {

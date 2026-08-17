@@ -717,6 +717,8 @@ pub struct PlayerView {
     pub shield: u32,
     pub speed: bool,
     pub slow: bool,
+    // 다가올 다음 블록 (7-bag 남은 순서, 최대 3개) — 대전 화면 NEXT 프리뷰용
+    pub next: Vec<&'static str>,
 }
 
 impl PlayerView {
@@ -750,6 +752,7 @@ impl PlayerView {
             shield: p.shield,
             speed: p.gravity_mult > 1.0,
             slow: p.gravity_mult < 1.0,
+            next: p.bag.iter().take(3).map(|i| PIECE_NAMES[*i as usize]).collect(),
         }
     }
 }
@@ -1022,6 +1025,23 @@ mod tests {
             p.spawn_piece(false);
         }
         assert!(seen.iter().all(|&s| s));
+    }
+
+    #[test]
+    fn player_view_exposes_next_queue() {
+        let mut p = Player::new("p".into(), 42);
+        // 생성 직후: 현재 피스를 제외한 bag 6개가 next에 보인다 (최대 3개)
+        let v = PlayerView::of(&p);
+        assert_eq!(v.next.len(), 3, "next는 최대 3개");
+        assert!(v.next.iter().all(|n| PIECE_NAMES.contains(n)));
+        // next[0]은 실제로 다음에 나올 피스와 일치해야 한다
+        assert_eq!(v.next[0], PIECE_NAMES[p.bag[0] as usize]);
+        // 피스를 스폰하면 bag이 하나 줄어 next가 앞으로 밀린다
+        p.spawn_piece(false);
+        let v2 = PlayerView::of(&p);
+        assert_eq!(v2.next.len(), 3);
+        assert_ne!(v2.next[2], v.next[2], "bag 소모 시 next 구성이 달라진다");
+        assert!(p.bag.len() >= 3);
     }
 
     #[test]
