@@ -3,6 +3,7 @@
   import { ArrowLeft, ArrowDown, ArrowLeft as LeftIcon, ArrowRight as RightIcon, ChevronUp, LoaderCircle, RotateCcw, RotateCw, Swords, X } from 'lucide-svelte';
   import Button from '../../components/ui/Button.svelte';
   import Card from '../../components/ui/Card.svelte';
+  import FullscreenButton from '../../components/ui/FullscreenButton.svelte';
   import ThreeBoard from '../../components/ThreeBoard.svelte';
   import { BattleClient } from '../client';
   import type { BattleEvent, MatchInfo } from '../protocol';
@@ -248,9 +249,12 @@
       <span class="flex size-2 rounded-full {connected ? 'bg-emerald-400' : 'bg-rose-400'}"></span>
       <span class="text-muted-foreground">{connected ? '연결됨' : '연결 끊김'}</span>
     </div>
-    <div class="flex items-center gap-2 text-[10px] font-bold tracking-[.18em] text-muted-foreground">
-      <Swords size={13} class="text-primary" />
-      <span>BATTLE</span>
+    <div class="flex items-center gap-2">
+      <FullscreenButton />
+      <div class="flex items-center gap-2 text-[10px] font-bold tracking-[.18em] text-muted-foreground">
+        <Swords size={13} class="text-primary" />
+        <span class="hidden sm:inline">BATTLE</span>
+      </div>
     </div>
   </div>
 

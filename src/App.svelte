@@ -22,6 +22,7 @@
     X
   } from 'lucide-svelte';
   import LoginScreen from './lib/components/LoginScreen.svelte';
+  import FullscreenButton from './lib/components/ui/FullscreenButton.svelte';
   import BattleFlow from './lib/battle/tetris/BattleFlow.svelte';
   import { getToken, logout as apiLogout, me, type AuthUser } from './lib/battle/auth';
   import Button from './lib/components/ui/Button.svelte';
@@ -261,6 +262,7 @@
       <Button variant="ghost" size="icon" aria-label={soundEnabled ? '소리 끄기' : '소리 켜기'} onclick={() => (soundEnabled = !soundEnabled)}>
         {#if soundEnabled}<Volume2 size={19} />{:else}<VolumeX size={19} />{/if}
       </Button>
+      <FullscreenButton />
       {#if mode === 'single'}
         <Button variant="outline" size="sm" onclick={() => engine.reset(true)}>
           <RefreshCw size={14} /> <span class="hidden sm:inline">새 게임</span>
