@@ -1,0 +1,25 @@
+# NEON STACK 배포용 스택
+#   docker compose -f docker-compose.yml.deploy pull
+#   docker compose -f docker-compose.yml.deploy up -d
+#
+# HAProxy 매핑:
+#   neonstack.highmaru.com  => frontend:3000
+#   neonstackb.highmaru.com => backend:8000
+#
+# DB는 .env의 DATABASE_URL을 사용합니다.
+services:
+  frontend:
+    image: dirmich/neonstack:latest
+    ports:
+      - '3000:80'
+    depends_on:
+      - backend
+
+  backend:
+    image: dirmich/neonstackb:latest
+    ports:
+      - '8000:8000'
+    environment:
+      PORT: '8000'
+      DATABASE_URL: ${DATABASE_URL}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
