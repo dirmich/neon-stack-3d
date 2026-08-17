@@ -19,6 +19,10 @@ services:
     image: dirmich/neonstackb:latest
     ports:
       - '8000:8000'
+    networks:
+      default:
+        aliases:
+          - gateway
     environment:
       PORT: '8000'
       DATABASE_URL: ${DATABASE_URL}
