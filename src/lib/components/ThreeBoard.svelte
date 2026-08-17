@@ -67,7 +67,8 @@
     shield: '#4dd8ff',
     slow: '#6db3ff'
   };
-  const itemGeometry = new THREE.OctahedronGeometry(0.42, 0);
+  const itemGeometry = new THREE.OctahedronGeometry(0.46, 0);
+  const itemRingGeometry = new THREE.RingGeometry(0.32, 0.52, 28);
   const itemMaterials = new Map<string, THREE.MeshStandardMaterial>();
   const itemGroups = new Map<string, THREE.Group>();
   let itemsGroup: THREE.Group | undefined;
@@ -86,9 +87,9 @@
         new THREE.MeshStandardMaterial({
           color,
           emissive: color,
-          emissiveIntensity: 1.6,
+          emissiveIntensity: 2.2,
           metalness: 0.05,
-          roughness: 0.35,
+          roughness: 0.3,
           transparent: true,
           opacity: 0.95
         })
@@ -96,15 +97,41 @@
     }
     const group = new THREE.Group();
     group.userData.kind = kind;
+    // 메인 마커(결정) — 블록이 쌓여 있어도 가려지지 않게 셀 위로 떠오른다
+    const marker = new THREE.Group();
+    marker.position.set(0, 0.35, 0.4);
     const mesh = new THREE.Mesh(itemGeometry, itemMaterials.get(kind)!);
-    group.add(mesh);
-    // 종류 표시용 꼭짓점 방향 반짝임을 위한 작은 헤일로
+    marker.add(mesh);
+    // 종류 색상 헤일로 — 가산 블렌딩으로 어두운 배경에서 발광
     const halo = new THREE.Mesh(
       itemGeometry,
-      new THREE.MeshBasicMaterial({ color: ITEM_COLORS[kind] ?? '#ffffff', transparent: true, opacity: 0.22 })
+      new THREE.MeshBasicMaterial({
+        color: ITEM_COLORS[kind] ?? '#ffffff',
+        transparent: true,
+        opacity: 0.4,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
     );
-    halo.scale.setScalar(1.55);
-    group.add(halo);
+    halo.scale.setScalar(1.65);
+    marker.add(halo);
+    group.add(marker);
+    // 셀 위치를 알려주는 발광 링 — 블록 윗면(z≈0.46) 바로 위에 붙어서,
+    // 떠 있는 결정 아래로 블록이 쌓여도 아이템 셀이 어디인지 항상 보인다.
+    const ring = new THREE.Mesh(
+      itemRingGeometry,
+      new THREE.MeshBasicMaterial({
+        color: ITEM_COLORS[kind] ?? '#ffffff',
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+      })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.z = -0.05; // 결정 바닥(0.49) 아래, 블록 윗면 위
+    group.add(ring);
     itemsGroup?.add(group);
     itemGroups.set(key, group);
     return group;
@@ -400,12 +427,14 @@
         }
       }
 
-      // 아이템 마커 부드러운 맥동 (reduced-motion이면 정지)
+      // 아이템 마커 — 맥동 + 회전 (reduced-motion이면 정지)
       if (!reducedMotion && itemsGroup?.children.length) {
-        const pulse = 0.85 + 0.2 * Math.sin(performance.now() / 380);
+        const t = performance.now();
+        const pulse = 0.9 + 0.18 * Math.sin(t / 420);
         for (const g of itemsGroup.children) {
           if (g.visible && g.userData.kind) {
             g.scale.setScalar(pulse);
+            g.rotation.y = t / 520;
           }
         }
         needsRender = true;
@@ -426,6 +455,7 @@
       renderer?.dispose();
       blockGeometry.dispose();
       itemGeometry.dispose();
+      itemRingGeometry.dispose();
       materials.forEach((material) => material.dispose());
       ghostMaterials.forEach((material) => material.dispose());
       itemMaterials.forEach((material) => material.dispose());
