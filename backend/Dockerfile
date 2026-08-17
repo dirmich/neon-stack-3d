@@ -6,7 +6,7 @@ COPY backend/rust/src ./src
 RUN cargo build --release
 
 # 2. Go gateway 빌드 (인증/방 관리/WebSocket 게이트웨이)
-FROM golang:1.24-alpine AS gateway-build
+FROM golang:1.25-alpine AS gateway-build
 WORKDIR /app
 COPY backend/go/go.mod backend/go/go.sum ./
 RUN go mod download
