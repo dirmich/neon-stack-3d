@@ -173,8 +173,8 @@ fn is_tspin(board: &Board, piece: &Piece, by_rotate: bool) -> bool {
 }
 
 /// 완성 줄을 제거한다. items 그리드는 board와 병렬로 같은 줄을 제거하며,
-/// 제거된 줄에 있던 아이템을 반환한다 (발동 대상).
-pub fn clear_rows(board: &Board, items: &ItemGrid) -> (Board, ItemGrid, usize, Vec<ItemKind>) {
+/// 제거된 줄에 있던 아이템을 (x, y, 종류) 좌표와 함께 반환한다 — 폭발 연출 등에 쓴다.
+pub fn clear_rows(board: &Board, items: &ItemGrid) -> (Board, ItemGrid, usize, Vec<(usize, usize, ItemKind)>) {
     let mut cleared_items = Vec::new();
     let mut remaining: Vec<Vec<Cell>> = Vec::with_capacity(H);
     let mut remaining_items: Vec<Vec<Option<ItemKind>>> = Vec::with_capacity(H);
@@ -183,7 +183,7 @@ pub fn clear_rows(board: &Board, items: &ItemGrid) -> (Board, ItemGrid, usize, V
         if full {
             for c in 0..W {
                 if let Some(k) = items[r][c] {
-                    cleared_items.push(k);
+                    cleared_items.push((c, r, k));
                 }
             }
         } else {
@@ -543,8 +543,8 @@ impl Player {
     }
 
     /// 락 수행: 병합, 줄 제거, 점수 계산. 락아웃(전부 보드 위)이면 TopOut.
-    /// 반환값: (클리어 종류, 제거된 줄에서 발동된 아이템 목록).
-    pub fn lock(&mut self) -> (ClearKind, Vec<ItemKind>) {
+    /// 반환값: (클리어 종류, 제거된 줄에서 발동된 아이템 목록 — (x, y, 종류)).
+    pub fn lock(&mut self) -> (ClearKind, Vec<(usize, usize, ItemKind)>) {
         if self.status != Status::Playing {
             return (ClearKind::None, Vec::new());
         }
@@ -687,6 +687,9 @@ pub struct Event {
     pub item: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
+    // 발동된 아이템 셀 좌표 (x, y) — 프론트 폭발 연출용
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cell: Option<(u8, u8)>,
 }
 
 #[derive(Serialize)]
@@ -871,12 +874,13 @@ impl Match {
                     winner: None,
                     item: None,
                     target: None,
+                    cell: None,
                 });
             }
         }
-        // 제거된 줄의 아이템 발동
-        for item in items {
-            self.apply_item(idx, item);
+        // 제거된 줄의 아이템 발동 — 셀 좌표를 함께 전달해 프론트에서 폭발 연출에 쓴다
+        for (x, y, item) in items {
+            self.apply_item(idx, item, Some((x as u8, y as u8)));
         }
         let p = &mut self.players[idx];
         if p.status == Status::Playing {
@@ -888,7 +892,8 @@ impl Match {
     }
 
     /// 아이템 효과 적용. 악영향은 상대(opp)에게, 이로운 것은 자신에게.
-    fn apply_item(&mut self, idx: usize, item: ItemKind) {
+    /// cell은 발동된 아이템 셀의 (x, y) — 폭발 연출용으로 이벤트에 실어 보낸다.
+    fn apply_item(&mut self, idx: usize, item: ItemKind, cell: Option<(u8, u8)>) {
         let opp = 1 - idx;
         let attacker_id = self.players[idx].id.clone();
         let (item_name, target) = match item {
@@ -925,6 +930,7 @@ impl Match {
             winner: None,
             item: Some(item_name.into()),
             target: target.map(|i| self.players[i].id.clone()),
+            cell,
         });
     }
 
@@ -958,6 +964,7 @@ impl Match {
                 winner,
                 item: None,
                 target: None,
+                cell: None,
             });
         }
     }
@@ -1181,6 +1188,8 @@ mod tests {
         assert_eq!(item_ev.item.as_deref(), Some("attack"));
         assert_eq!(item_ev.by.as_deref(), Some("a"));
         assert_eq!(item_ev.target.as_deref(), Some("b"));
+        // 폭발 연출용 셀 좌표 — 아이템이 있던 셀 (0, H-1)이 실려야 한다
+        assert_eq!(item_ev.cell, Some((0, (H - 1) as u8)));
     }
 
     #[test]

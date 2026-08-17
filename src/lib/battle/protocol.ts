@@ -13,6 +13,8 @@ export interface BattleEvent {
   /** 아이템 발동 이벤트 전용 (kind === 'item') */
   item?: string;
   target?: string;
+  /** 발동된 아이템 셀 좌표 [x, y] — 폭발 연출용 */
+  cell?: [number, number];
 }
 
 /** 서버 → 클라이언트 메시지 봉투 (S = 게임별 플레이어 상태) */

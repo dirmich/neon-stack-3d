@@ -21,7 +21,8 @@
     clearFlash = 0,
     interactive = true,
     showHint = true,
-    items = []
+    items = [],
+    bursts = []
   }: {
     board: Board;
     active: Piece;
@@ -33,6 +34,8 @@
     showHint?: boolean;
     /** 아이템 배틀 모드 — 보드와 같은 크기의 아이템 셀 (이름 또는 null) */
     items?: (string | null)[][];
+    /** 아이템 발동 폭발 연출 — 발동된 셀 (x, y) + 종류 + 고유 id */
+    bursts?: { x: number; y: number; kind: string; id: number }[];
   } = $props();
 
   let canvas: HTMLCanvasElement;
@@ -46,6 +49,17 @@
   let frame = 0;
   let resizeObserver: ResizeObserver | undefined;
   let needsRender = true;
+
+  // 아이템 발동 폭발 — 활성 버스트 목록 (reduced-motion이면 아예 스폰하지 않는다)
+  const activeBursts: {
+    group: THREE.Group;
+    core: THREE.Group;
+    flash: THREE.Mesh;
+    sparks: THREE.Mesh[];
+    started: number;
+    dur: number;
+  }[] = [];
+  let lastSeenBurstId = -1;
 
   // 줄 제거 플래시
   const FLASH_DURATION = 350; // ms
@@ -369,6 +383,78 @@
     needsRender = true;
   }
 
+  // 자동화 검증용 — 지금까지 스폰된 폭발 버스트 누적 수
+  let burstsSeen = 0;
+
+  /** 아이템 발동 시 셀에서 폭발 연출 — 아이템 모양이 부풀며 사라지고 섬광+스파크가 튄다 */
+  function spawnBurst(x: number, y: number, kind: string) {
+    if (!scene || reducedMotion) return;
+    const group = new THREE.Group();
+    group.position.set(x - (BOARD_WIDTH - 1) / 2, BOARD_HEIGHT - 1 - y + 0.35, 0.95);
+    // 1) 아이템 모양 코어 — 부풀며 소멸 (마커가 폭발하는 느낌).
+    //    재질은 반드시 clone(): 캐시된 원본 재질을 건드리면 같은 종류의 다른 마커도 사라진다.
+    const core = shapeForKind(kind).clone(true);
+    core.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) {
+        (obj as THREE.Mesh).material = ((obj as THREE.Mesh).material as THREE.Material).clone();
+      }
+    });
+    group.add(core);
+    // 2) 섬광 구 — 가산 블렌딩으로 팽창
+    const flash = new THREE.Mesh(
+      new THREE.SphereGeometry(0.3, 12, 12),
+      new THREE.MeshBasicMaterial({
+        color: ITEM_COLORS[kind] ?? '#ffffff',
+        transparent: true,
+        opacity: 0.9,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false
+      })
+    );
+    group.add(flash);
+    // 3) 스파크 파편 — 바깥으로 튀며 중력으로 떨어진다
+    const sparks: THREE.Mesh[] = [];
+    for (let i = 0; i < 12; i++) {
+      const s = new THREE.Mesh(
+        new THREE.TetrahedronGeometry(0.07 + Math.random() * 0.07, 0),
+        new THREE.MeshBasicMaterial({
+          color: ITEM_COLORS[kind] ?? '#ffffff',
+          transparent: true,
+          opacity: 1,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false
+        })
+      );
+      s.userData.vel = new THREE.Vector3(
+        (Math.random() - 0.5) * 0.1,
+        (Math.random() - 0.25) * 0.12,
+        (Math.random() - 0.5) * 0.1
+      );
+      s.userData.spin = new THREE.Vector3(Math.random() * 8, Math.random() * 8, 0);
+      group.add(s);
+      sparks.push(s);
+    }
+    scene.add(group);
+    activeBursts.push({ group, core, flash, sparks, started: performance.now(), dur: 520 });
+    burstsSeen += 1;
+    if (host) host.dataset.bursts = String(burstsSeen);
+    needsRender = true;
+  }
+
+  /** 버스트 제거 — 코어는 캐시와 지오메트리를 공유하므로 재질만, 섬광/스파크는 지오메트리+재질 해제 */
+  function disposeBurst(b: (typeof activeBursts)[number]) {
+    b.group.removeFromParent();
+    b.core.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) ((obj as THREE.Mesh).material as THREE.Material).dispose();
+    });
+    b.flash.geometry.dispose();
+    (b.flash.material as THREE.Material).dispose();
+    for (const s of b.sparks) {
+      s.geometry.dispose();
+      (s.material as THREE.Material).dispose();
+    }
+  }
+
   // 보드 프레임 실치수 + 여유(유닛). 카메라가 이 영역을 항상 전체 담도록 거리를 계산한다.
   const BOARD_FRAME_W = 11.1;
   const BOARD_FRAME_H = 21.1;
@@ -531,6 +617,37 @@
         needsRender = true;
       }
 
+      // 아이템 폭발 버스트 — 코어 확장+소멸, 섬광 팽창, 스파크 중력 낙하 (모두 reduced-motion 제외)
+      if (activeBursts.length) {
+        const now = performance.now();
+        for (let i = activeBursts.length - 1; i >= 0; i--) {
+          const b = activeBursts[i];
+          const t = (now - b.started) / b.dur;
+          if (t >= 1) {
+            disposeBurst(b);
+            activeBursts.splice(i, 1);
+            continue;
+          }
+          const ease = 1 - Math.pow(1 - t, 3); // easeOutCubic
+          b.core.scale.setScalar(1 + ease * 1.7);
+          b.core.traverse((obj) => {
+            if ((obj as THREE.Mesh).isMesh) {
+              ((obj as THREE.Mesh).material as THREE.Material).opacity = Math.max(0, 1 - t);
+            }
+          });
+          b.flash.scale.setScalar(1 + ease * 4);
+          (b.flash.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - t);
+          for (const s of b.sparks) {
+            s.userData.vel.y -= 0.004;
+            s.position.add(s.userData.vel);
+            s.rotation.x += s.userData.spin.x * 0.02;
+            s.rotation.y += s.userData.spin.y * 0.02;
+            (s.material as THREE.MeshBasicMaterial).opacity = 1 - t;
+          }
+          needsRender = true;
+        }
+      }
+
       // 플레이 중에는 매 프레임 렌더(낙하/회전 반응), 그 외에는 변경 시에만 렌더.
       if (needsRender || status === 'playing') {
         renderer?.render(scene!, camera!);
@@ -558,6 +675,8 @@
         })
       );
       itemGroups.clear();
+      for (const b of activeBursts) disposeBurst(b);
+      activeBursts.length = 0;
       if (flashMesh) {
         flashMesh.geometry.dispose();
         (flashMesh.material as THREE.Material).dispose();
@@ -577,6 +696,18 @@
     if (clearFlash > prevClearFlash) {
       startClearFlash();
       prevClearFlash = clearFlash;
+    }
+  });
+
+  // 새 아이템 발동 버스트를 스폰 (id는 단조 증가 — 처리한 id보다 큰 것만)
+  $effect(() => {
+    bursts;
+    if (!scene || reducedMotion) return;
+    for (const b of bursts) {
+      if (b.id > lastSeenBurstId) {
+        lastSeenBurstId = b.id;
+        spawnBurst(b.x, b.y, b.kind);
+      }
     }
   });
 </script>  <div bind:this={host} class="relative h-full min-h-0 w-full touch-none overflow-hidden rounded-[1.35rem]">

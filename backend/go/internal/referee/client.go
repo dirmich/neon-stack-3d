@@ -58,6 +58,8 @@ type Event struct {
 	Winner *uint8  `json:"winner,omitempty"`
 	Item   *string `json:"item,omitempty"`
 	Target *string `json:"target,omitempty"`
+	// 발동된 아이템 셀 좌표 [x, y] — 프론트 폭발 연출용
+	Cell []int `json:"cell,omitempty"`
 }
 
 type Update struct {
